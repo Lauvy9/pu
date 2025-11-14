@@ -1,0 +1,22 @@
+/* Estilos para el dashboard financiero */
+.finanzas-grid{ display:grid; gap:12px; grid-template-columns: 300px 1fr; align-items:start }
+@media (max-width: 900px){ .finanzas-grid{ grid-template-columns: 1fr } }
+
+.finanzas-filters{ position:sticky; top:12px; background:#fff; border-radius:10px; padding:12px; box-shadow:0 6px 14px rgba(0,0,0,0.06); border:1px solid rgba(0,0,0,0.06) }
+.finanzas-main{ display:flex; flex-direction:column; gap:12px }
+.finanzas-main.dark{ background:#0f1720; color:#e6eef8 }
+.finanzas-main.dark .card{ background: #0b1220; color:#e6eef8; box-shadow: 0 6px 18px rgba(0,0,0,0.6); border:1px solid rgba(255,255,255,0.04) }
+.finanzas-main.dark .small-muted{ color:#9fb2c9 }
+.finanzas-main.dark .btn{ background: rgba(255,255,255,0.04); color:#e6eef8 }
+.finanzas-filters.dark{ background:#071022; color:#e6eef8 }
+.metrics-row{ display:grid; grid-template-columns: repeat(4,1fr); gap:12px }
+@media (max-width: 900px){ .metrics-row{ grid-template-columns: repeat(2,1fr) } }
+@media (max-width: 480px){ .metrics-row{ grid-template-columns: 1fr } }
+
+.card{ background:#fff; color:#000 }
+
+/* botones touch */
+.btn{ padding:8px 10px; border-radius:8px; min-height:40px; cursor:pointer }
+
+/* tablas y listas */
+.finanzas-main .card{ padding:12px; border-radius:10px; box-shadow:0 6px 14px rgba(0,0,0,0.06); border:1px solid rgba(0,0,0,0.06) }

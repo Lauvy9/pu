@@ -1,0 +1,58 @@
+/* Styles para Sales.jsx: responsive grid, tabla, cards móviles y botones touch */
+:root{
+  --card-bg: #fff;
+  --text-color: #000;
+  --muted: #666;
+  --soft-border: rgba(0,0,0,0.08);
+}
+
+.sales-grid{
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(3, 1fr);
+  align-items: start;
+}
+
+@media (max-width: 768px){
+  .sales-grid{ grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 480px){
+  .sales-grid{ grid-template-columns: 1fr; }
+}
+
+.sales-card{ background: var(--card-bg); color: var(--text-color); border-radius: 10px; padding: 12px; box-shadow: 0 6px 14px rgba(0,0,0,0.06); border: 1px solid var(--soft-border); }
+
+.sales-table-wrapper{ background: var(--card-bg); color: var(--text-color); border-radius: 10px; padding: 8px; box-shadow: 0 6px 14px rgba(0,0,0,0.06); border: 1px solid var(--soft-border); overflow-x: auto; }
+
+.sales-table{ width: 100%; border-collapse: collapse; min-width: 880px; }
+.sales-table th, .sales-table td{ padding: 10px 12px; border-bottom: 1px solid rgba(0,0,0,0.04); text-align: left; vertical-align: middle; color: var(--text-color); }
+.sales-table thead th{ font-weight:700; font-size: 0.95rem; }
+.sales-table tbody tr{ transition: background-color 0.25s ease, transform 0.15s ease; }
+.sales-table tbody tr:hover{ transform: translateY(-2px); }
+
+.sales-actions{ display:flex; gap:8px; align-items:center; }
+.btn.touch{ padding: 10px 12px; min-height:44px; font-size:0.95rem; border-radius:8px; }
+.btn.icon{ display:inline-flex; align-items:center; gap:8px; }
+
+.small-muted{ color: var(--muted); font-size:0.85rem }
+
+/* Row background states keep same semantic colors but ensure black text for contrast */
+.state-blue{ background: #2196F3 !important; color: #000 !important; }
+.state-red{ background: #F44336 !important; color: #000 !important; }
+.state-yellow{ background: #FFEB3B !important; color: #000 !important; }
+.state-green{ background: #4CAF50 !important; color: #000 !important; }
+
+/* Card view for mobile */
+.sales-cards{ display:flex; flex-direction:column; gap:10px; }
+.sale-card{ display:flex; flex-direction:column; gap:8px; padding:12px; border-radius:10px; background:var(--card-bg); color:var(--text-color); border:1px solid var(--soft-border); }
+.sale-card .row{ display:flex; justify-content:space-between; align-items:center; }
+.sale-card .items{ font-size:0.9rem; color:var(--muted); max-height:80px; overflow:auto; }
+
+.tooltip{ text-decoration: none; cursor: help; }
+
+/* Loader small */
+.loader{ width:18px; height:18px; border-radius:50%; border:3px solid rgba(0,0,0,0.1); border-top-color: rgba(0,0,0,0.6); animation:spin 1s linear infinite; }
+@keyframes spin{ to{ transform:rotate(360deg) } }
+
+/* Ensure texts don't overflow */
+.truncate{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }

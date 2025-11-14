@@ -1,0 +1,37 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Permitir que un usuario autenticado lea/escriba SU documento en /users/{uid}
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Ejemplos adicionales (ajusta según tu modelo de datos):
+    // match /ventas/{docId} {
+    //   allow read: if request.auth != null;
+    //   allow write: if request.auth != null; // o reglas más específicas
+    // }
+  }
+}
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // util para verificar si está autenticado
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Reglas generales: sólo usuarios autenticados pueden leer/escribir
+    match /{document=**} {
+      allow read, write: if isSignedIn();
+    }
+
+    // Control adicional para la colección `usuarios` (es recomendable que los docs estén
+    // indexados por uid y que la creación/edición se haga desde la consola o funciones admin)
+    match /usuarios/{userId} {
+      allow read: if isSignedIn();
+      // Sólo admins (definidos fuera de estas reglas) deben crear/editar usuarios.
+      allow create, update, delete: if false;
+    }
+  }
+}

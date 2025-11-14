@@ -1,0 +1,9 @@
+.uploader{ background:#fff; padding:12px; border-radius:8px; box-shadow:0 2px 6px rgba(0,0,0,0.08); }
+.uploader h4{ margin:0 0 8px 0 }
+.uploader-current{ display:flex; align-items:center; gap:12px }
+.uploader-current-img{ width:80px; height:80px; object-fit:cover; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,0.12) }
+.uploader-actions{ display:flex; gap:8px }
+.uploader-preview img{ width:120px; height:120px; object-fit:cover; border-radius:8px; box-shadow:0 2px 6px rgba(0,0,0,0.12) }
+.btn{ padding:8px 12px; background:#1976d2; color:#fff; border-radius:6px; border:none; cursor:pointer }
+.btn-danger{ background:#e53935 }
+.uploader-form input[type=file]{ display:block }
