@@ -1,598 +1,893 @@
-import React, { createContext, useContext, useMemo, useEffect } from "react";
-import * as fh from '../firebase/firestoreHelpers'
-import useLocalStorage from "../hooks/useLocalStorage";
-import { calcPrices } from "../utils/helpers";
-import { isPaymentOnOrBeforeDue } from "../utils/dateHelpers";
+import React, { createContext, useState, useEffect, useContext } from 'react';
+import { formatCurrency } from '../utils/helpers';
+import useLocalStorage from '../hooks/useLocalStorage';
+import { calculateFinancialData } from '../utils/financeHelpers'
 
-const StoreContext = createContext(null);
+export const StoreContext = createContext();
+
+export function useStore() {
+  const context = useContext(StoreContext);
+  if (!context) {
+    throw new Error('useStore must be used within StoreProvider');
+  }
+  return context;
+}
 
 export function StoreProvider({ children }) {
-  // Estado general del negocio
-  const [products, setProducts] = useLocalStorage("vid_prod", []);  // productos
-  const [sales, setSales] = useLocalStorage("vid_sales", []);      // ventas
-  const [entries, setEntries] = useLocalStorage("vid_entries", []); // entradas de stock
-  const [fiados, setFiados] = useLocalStorage("vid_fiados", []);   // clientes que deben
-  const [services, setServices] = useLocalStorage("vid_servicios", []); // servicios
-  const [bankAccounts, setBankAccounts] = useLocalStorage("vid_accounts", []); // cuentas bancarias
-  const [presupuestos, setPresupuestos] = useLocalStorage("vid_presupuestos", []);
-  const [invoices, setInvoices] = useLocalStorage("vid_invoices", []);
-  const [payments, setPayments] = useLocalStorage("vid_payments", []);
-  const [expenses, setExpenses] = useLocalStorage("vid_gastos", []);
-  const [savedReports, setSavedReports] = useLocalStorage("vid_saved_reports", []);
+  const [sales, setSales] = useLocalStorage('vid_sales', []);
+  const [fiados, setFiados] = useLocalStorage('vid_fiados', []);
+  const [products, setProducts] = useLocalStorage('vid_products', []);
+  const [services, setServices] = useLocalStorage('vid_services', []);
+  const [serviceTemplates, setServiceTemplates] = useLocalStorage('vid_service_templates', []);
+  const [transactions, setTransactions] = useLocalStorage('vid_transactions', []);
+  const [bankAccounts, setBankAccounts] = useLocalStorage('vid_bankAccounts', []);
+  const [payments, setPayments] = useLocalStorage('vid_payments', []);
+  const [expenses, setExpenses] = useLocalStorage('vid_expenses', []);
+  const [presupuestos, setPresupuestos] = useLocalStorage('vid_presupuestos', []);
+  const [company, setCompany] = useLocalStorage('vid_company', {
+    name: '',
+    address: '',
+    phone: '',
+    email: '',
+    logo: '' // can be a URL or dataURL
+  });
 
-  // One-time migration: normalize stored dates and compute `onTime` for existing payments/movements
-  useEffect(() => {
-    try {
-      if (typeof window === 'undefined') return;
-      if (localStorage.getItem('migrated_onTime_v1')) return;
-      const toISO = (s) => {
-        if (!s) return null;
-        try {
-          if (typeof s !== 'string') return new Date(s).toISOString();
-          // ISO-like
-          if (/^\d{4}-\d{2}-\d{2}/.test(s)) return new Date(s).toISOString();
-          // DD/MM/YYYY or DD/MM/YYYY HH:MM(:SS)
-          const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?/);
-          if (m) {
-            const dd = m[1], mm = m[2], yyyy = m[3], hh = m[4] || '00', mi = m[5] || '00', ss = m[6] || '00'
-            return new Date(`${yyyy}-${mm}-${dd}T${hh}:${mi}:${ss}Z`).toISOString();
-          }
-          return new Date(s).toISOString();
-        } catch (e) { return s }
+  const actions = {
+    // PRODUCTOS
+    addProduct: (product) => {
+      // Extend addProduct: if product with same name+caracteristica exists => treat as reposicion
+      const exists = (products || []).find(p => String((p.name||'')).trim().toLowerCase() === String((product.name||'')).trim().toLowerCase() && String((p.caracteristica||'')).trim().toLowerCase() === String((product.caracteristica||'')).trim().toLowerCase())
+      if (exists) {
+        // It's a reposición: aumentar stock del producto existente
+        const addedQty = Number(product.stock || 0);
+        const newCost = product.cost != null ? Number(product.cost) : exists.cost || 0;
+        setProducts(prev => prev.map(p => p.id === exists.id ? { ...p, stock: Number(p.stock || 0) + addedQty, cost: newCost } : p));
+        // registrar transacción de reposicion
+        const tx = {
+          id: 'tx_' + Date.now().toString(),
+          tipo: 'reposicion',
+          fecha: new Date().toISOString(),
+          productoId: exists.id,
+          nombreProducto: product.name || exists.name || '',
+          cantidad: addedQty,
+          costoUnitario: newCost,
+          total: Number(addedQty) * Number(newCost || 0),
+          businessUnit: (product.businessUnit || exists.businessUnit) || undefined,
+        };
+        // push transaction and register expense
+        setTransactions(prev => [...prev, tx]);
+        // also add as expense to keep finance logic
+        const exp = { id: 'exp_' + Date.now().toString(), date: tx.fecha, description: `Reposición ${tx.nombreProducto}`, amount: tx.total, category: 'materiales', businessUnit: tx.businessUnit };
+        setExpenses(prev => [...prev, exp]);
+        return exists;
       }
 
-      let anyChange = false;
+      const newProduct = {
+        ...product,
+        id: product.id || Date.now().toString(),
+        businessUnit: product.businessUnit || undefined,
+      };
+      setProducts(prev => [...prev, newProduct]);
 
-      // normalize fiados
-      const normalizedFiados = (fiados || []).map(f => {
-        let changed = false
-        const movimientos = (f.movimientos || []).map(m => {
-          const nm = { ...m }
-          // normalize dueDate
-          if (nm.dueDate) {
-            const iso = toISO(nm.dueDate)
-            if (iso && iso !== nm.dueDate) { nm.dueDate = iso; changed = true }
-          }
-          // normalize payments
-          nm.payments = (nm.payments || []).map(p => {
-            const np = { ...p }
-            const rawDate = p.date || p.fecha || p.fecha_pago || p.createdAt || null
-            const isoP = toISO(rawDate) || new Date().toISOString()
-            if (isoP !== np.date) { np.date = isoP; changed = true }
-            // compute onTime
-            try {
-              if (typeof np.onTime === 'undefined') {
-                np.onTime = isPaymentOnOrBeforeDue(np.date, nm.dueDate)
-                changed = true
-              }
-            } catch(e) { np.onTime = true }
-            return np
-          })
-          // recompute restante
-          const total = Number(nm.amount || 0)
-          const paid = (nm.payments || []).reduce((s,pp) => s + Number(pp.amount || 0), 0)
-          const restante = Math.max(0, total - paid)
-          if (nm.restante !== restante) { nm.restante = restante; changed = true }
-          if (changed) anyChange = true
-          return nm
-        })
-        return { ...f, movimientos }
-      })
-
-      // normalize sales/payments
-      const normalizedSales = (sales || []).map(s => {
-        let changed = false
-        const ns = { ...s }
-        if (ns.dueDate) {
-          const iso = toISO(ns.dueDate)
-          if (iso && iso !== ns.dueDate) { ns.dueDate = iso; changed = true }
-        }
-        ns.payments = (ns.payments || []).map(p => {
-          const np = { ...p }
-          const rawDate = p.date || p.fecha || p.createdAt || null
-          const isoP = toISO(rawDate) || new Date().toISOString()
-          if (isoP !== np.date) { np.date = isoP; changed = true }
-          try {
-            if (typeof np.onTime === 'undefined') {
-              np.onTime = isPaymentOnOrBeforeDue(np.date, ns.dueDate)
-              changed = true
-            }
-          } catch(e) { np.onTime = true }
-          return np
-        })
-        if (changed) anyChange = true
-        return ns
-      })
-
-      if (anyChange) {
-        try { setFiados(normalizedFiados) } catch(e){}
-        try { setSales(normalizedSales) } catch(e){}
+      // Registrar transacción tipo 'compra' para el stock inicial (si aplica)
+      const initialQty = Number(product.stock || 0);
+      if (initialQty > 0) {
+        const tx = {
+          id: 'tx_' + Date.now().toString(),
+          tipo: 'compra',
+          fecha: new Date().toISOString(),
+          productoId: newProduct.id,
+          nombreProducto: newProduct.name || '',
+          cantidad: initialQty,
+          costoUnitario: Number(product.cost || 0),
+          total: Number(initialQty) * Number(product.cost || 0),
+          businessUnit: newProduct.businessUnit || undefined,
+        };
+        setTransactions(prev => [...prev, tx]);
+        const exp = { id: 'exp_' + Date.now().toString(), date: tx.fecha, description: `Compra ${tx.nombreProducto}`, amount: tx.total, category: 'materiales', businessUnit: tx.businessUnit };
+        setExpenses(prev => [...prev, exp]);
       }
-      localStorage.setItem('migrated_onTime_v1', '1')
-    } catch(e) {
-      console.warn('migration onTime failed', e)
-    }
-  }, [])
+      return newProduct;
+    },
 
-  const actions = useMemo(
-    () => ({
-      // 📦 Agregar producto nuevo
-      addProduct: (p) => {
-        const withPrices = { ...calcPrices(p) };
-        // ensure id
-        if (!withPrices.id) withPrices.id = Date.now();
-        setProducts((prev) => [...prev, withPrices]);
-        // If Firestore sync enabled, create document there too (non-blocking)
-        try {
-          if (import.meta.env.VITE_USE_FIRESTORE === 'true') {
-            ;(async () => {
-              try {
-                const fid = await fh.createDoc('productos', withPrices)
-                // store firestore id as fsId for traceability
-                setProducts(prev => prev.map(x => x.id === withPrices.id ? { ...x, fsId: fid } : x))
-              } catch (e) {
-                console.warn('Firestore create product failed', e)
-              }
-            })()
+    // SERVICIOS
+    addService: (svc) => {
+      const normalized = {
+        id: svc.id || ('svc_' + Date.now().toString()),
+        name: svc.name || svc.nombre || svc.nombre || '',
+        // price normalization keeps backward compatibility
+        price: Number(svc.price || svc.precio || svc.cost || svc.precio || 0),
+        tipoServicio: svc.tipoServicio || svc.tipo || null,
+        unidad: svc.unidad || null,
+        descripcion: svc.descripcion || svc.description || '' ,
+        businessUnit: svc.businessUnit || svc.unidadNegocio || undefined,
+        activo: typeof svc.activo === 'undefined' ? true : !!svc.activo,
+      };
+      setServices(prev => [...(prev || []), normalized]);
+      return normalized;
+    },
+
+    updateService: (id, patch) => {
+      setServices(prev => (prev || []).map(s => s.id === id ? { ...s, ...patch, price: typeof patch.price !== 'undefined' ? Number(patch.price) : s.price } : s));
+    },
+
+    removeService: (id) => {
+      setServices(prev => (prev || []).filter(s => s.id !== id));
+    },
+
+    // PLANTILLAS DE SERVICIOS (SERVICE TEMPLATES)
+    addServiceTemplate: (template) => {
+      const normalized = {
+        id: template.id || ('tmpl_' + Date.now().toString()),
+        nombre: template.nombre || template.name || '',
+        tipoServicio: template.tipoServicio || 'vidrieria',
+        precio: Number(template.precio || template.price || 0),
+        unidad: template.unidad || 'unidad',
+        descripcionBase: template.descripcionBase || template.description || '',
+        activo: typeof template.activo === 'undefined' ? true : !!template.activo,
+        createdAt: template.createdAt || new Date().toISOString(),
+      };
+      setServiceTemplates(prev => [...(prev || []), normalized]);
+      return normalized;
+    },
+
+    updateServiceTemplate: (id, patch) => {
+      setServiceTemplates(prev => (prev || []).map(t => t.id === id ? { ...t, ...patch, precio: typeof patch.precio !== 'undefined' ? Number(patch.precio) : (typeof patch.price !== 'undefined' ? Number(patch.price) : t.precio) } : t));
+    },
+
+    removeServiceTemplate: (id) => {
+      setServiceTemplates(prev => (prev || []).filter(t => t.id !== id));
+    },
+
+    updateProduct: (id, updates) => {
+      // Detectar reposición si el stock aumenta
+      try {
+        const existing = (products || []).find(p => p.id === id);
+        if (existing && updates && typeof updates.stock !== 'undefined') {
+          const prevStock = Number(existing.stock || 0);
+          const newStock = Number(updates.stock || 0);
+          if (newStock > prevStock) {
+            const added = newStock - prevStock;
+            const costoUnit = typeof updates.cost !== 'undefined' ? Number(updates.cost) : Number(existing.cost || 0);
+            const tx = {
+              id: 'tx_' + Date.now().toString(),
+              tipo: 'reposicion',
+              fecha: new Date().toISOString(),
+              productoId: existing.id,
+              nombreProducto: existing.name || '',
+              cantidad: added,
+              costoUnitario: costoUnit,
+              total: added * costoUnit,
+              businessUnit: (updates && updates.businessUnit) ? updates.businessUnit : (existing.businessUnit || undefined),
+            };
+            setTransactions(prev => [...prev, tx]);
+            const exp = { id: 'exp_' + Date.now().toString(), date: tx.fecha, description: `Reposición ${tx.nombreProducto}`, amount: tx.total, category: 'materiales', businessUnit: tx.businessUnit };
+            setExpenses(prev => [...prev, exp]);
           }
-        } catch(e) {}
-        setEntries((prev) => [
-          ...prev,
-          {
-            date: new Date().toISOString(),
-            product: withPrices,
-            qty: p.stock,
-            cost: p.cost,
-          },
-        ]);
-      },
-
-      // 🧩 Actualizar producto existente
-      updateProduct: (id, patch) => {
-        setProducts((prev) =>
-          prev.map((p) =>
-            p.id === id
-              ? { ...p, ...patch, ...calcPrices({ ...p, ...patch }) }
-              : p
-          )
-        );
-        // sync to Firestore if available
-        try {
-          if (import.meta.env.VITE_USE_FIRESTORE === 'true') {
-            ;(async () => {
-              try {
-                const prod = products.find(p => p.id === id)
-                if (prod && prod.fsId) {
-                  await fh.updateDocById('productos', prod.fsId, { ...prod, ...patch })
-                }
-              } catch (e) { console.warn('Firestore update product failed', e) }
-            })()
-          }
-        } catch(e) {}
-      },
-
-      // 🗑️ Eliminar producto
-      removeProduct: (id) => {
-        // if synced to Firestore, attempt delete
-        const prod = products.find(p => p.id === id)
-        if (prod && import.meta.env.VITE_USE_FIRESTORE === 'true' && prod.fsId) {
-          ;(async () => {
-            try {
-              await fh.updateDocById('productos', prod.fsId, { deleted: true })
-            } catch(e) { console.warn('Firestore soft-delete failed', e) }
-          })()
         }
-        setProducts((prev) => prev.filter((p) => p.id !== id));
-      },
+      } catch (e) { console.warn('updateProduct tx hook failed', e) }
+      setProducts(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p));
+    },
 
-      // 💰 Registrar venta
-      registerSale: (sale) => {
-        // sale: { items: [{id, qty, price, type}], total, profit, date, cliente? }
+    deleteProduct: (id) => {
+      setProducts(prev => prev.filter(p => p.id !== id));
+    },
 
-        // Actualizar stock de productos vendidos
-        setProducts((prev) =>
-          prev.map((prod) => {
-            const item = sale.items.find((i) => i.id === prod.id);
-            if (item) {
-              return { ...prod, stock: Math.max(0, prod.stock - item.qty) };
-            }
-            return prod;
-          })
-        );
+    // VENTAS
+    addSale: (sale) => {
+      // Sanitizar entrada: asegurar números y formatos coherentes
+      function parseNum(x){
+        try{ if (x === null || x === undefined || x === '') return 0; const s = String(x).trim(); const ss = (s.indexOf('.')!==-1 && s.indexOf(',')!==-1) ? s.replace(/\./g,'').replace(/,/g,'.') : (s.indexOf(',')!==-1 ? s.replace(/,/g,'.') : s); const n = Number(ss.replace(/[^0-9.\-]/g,'')); if (isNaN(n)) return 0; const MAX = 1e12; if (Math.abs(n) > MAX) return Math.sign(n)*MAX; return n }catch(e){return 0}
+      }
 
-        // Guardar venta
-        setSales((prev) => [...prev, sale]);
+      const paymentsArr = Array.isArray(sale.payments) ? sale.payments.map(p=> ({ ...p, amount: parseNum(p.amount) })) : []
+      const paymentsSum = paymentsArr.reduce((s,p) => s + Number(p.amount || 0), 0)
 
-        // Si es venta fiada, registrar al cliente en fiados
-        if (sale.cliente) {
-          setFiados((prev) => {
-            const existing = prev.find((f) => f.nombre === sale.cliente);
-            if (existing) {
-              // sumar deuda
-              return prev.map((f) =>
-                f.nombre === sale.cliente
-                  ? { ...f, deuda: f.deuda + sale.total }
-                  : f
-              );
-            } else {
-              // crear nuevo cliente fiado
-              return [
-                ...prev,
-                { nombre: sale.cliente, deuda: sale.total, fecha: new Date().toISOString() },
-              ];
-            }
+      // normalize items
+      const items = Array.isArray(sale.items) ? sale.items.map(it => ({
+        ...it,
+        qty: Number(parseNum(it.qty || it.quantity || 0)),
+        price: Number(parseNum(it.price || it.unitPrice || it.amount || 0)),
+        cost: Number(parseNum(it.cost || it.unitCost || 0))
+      })) : sale.items
+
+      // compute total if missing or clearly invalid
+      let computedTotal = 0
+      if (Array.isArray(items) && items.length) computedTotal = items.reduce((acc,it) => acc + (Number(it.price || 0) * Number(it.qty || 0)), 0)
+      const givenTotal = parseNum(sale.total || sale.totalVenta || sale.amount || sale.monto || 0)
+      const totalToUse = (givenTotal && givenTotal > 0) ? Math.min(givenTotal, 1e12) : computedTotal
+
+      const newSale = {
+        ...sale,
+        id: sale.id || Date.now().toString(),
+        date: sale.date || new Date().toISOString(),
+        payments: paymentsArr,
+        pagado: paymentsSum || 0,
+        items,
+        total: Number(totalToUse || 0),
+        type: sale.type || (sale.isPresupuesto ? 'presupuesto' : 'venta'),
+      };
+      // Enriquecer items con snapshot del producto (fuente de verdad)
+      try{
+        if (Array.isArray(newSale.items)){
+          newSale.items = newSale.items.map(it => {
+            const prod = (products || []).find(p => String(p.id) === String(it.id));
+            const snapshot = prod ? {
+              id: prod.id,
+              name: prod.name || prod.title || prod.descripcion || '',
+              descripcion: prod.descripcion || prod.description || '',
+              medidas: prod.medidas || prod.measures || null,
+              stock: Number(prod.stock || 0),
+              cost: Number(prod.cost || prod.unitCost || 0),
+              price: Number(it.price || it.unitPrice || prod.price || prod.precio || 0),
+              businessUnit: prod.businessUnit || prod.unit || 'sin_especificar'
+            } : null;
+            return { ...it, productSnapshot: snapshot };
           });
         }
-      },
+      }catch(e){ console.warn('addSale: failed to enrich items', e) }
 
-      // 📥 Agregar stock (nueva entrada)
-      addStockEntry: (entry) => {
-        // entry: {id, qty, cost}
-        setProducts((prev) =>
-          prev.map((p) =>
-            p.id === entry.id
-              ? {
-                  ...p,
-                  stock: p.stock + entry.qty,
-                  cost: entry.cost,
-                  ...calcPrices({ ...p, cost: entry.cost }),
-                }
-              : p
-          )
-        );
+      // Descontar stock por cada item vendido (solo productos, no servicios)
+      if (newSale.items && Array.isArray(newSale.items)) {
+        setProducts(prev => {
+          const next = [...prev];
+          newSale.items.forEach(it => {
+            try{
+              const prodId = it && it.productSnapshot ? it.productSnapshot.id : it.id;
+              const idx = next.findIndex(p => String(p.id) === String(prodId));
+              if (idx !== -1 && !String(prodId).startsWith('svc_')) {
+                const qty = Number(it.qty || it.quantity || 0);
+                next[idx] = { ...next[idx], stock: Math.max(0, Number(next[idx].stock || 0) - qty) };
+              }
+            }catch(e){ }
+          });
+          return next;
+        });
+      }
 
-        setEntries((prev) => [
-          ...prev,
-          { ...entry, date: new Date().toISOString() },
-        ]);
-      },
-
-      // Gastos (expenses) - persistidos en localStorage via useLocalStorage
-      addExpense: (expense) => {
-        const e = { id: expense.id || ('exp_' + Date.now()), date: expense.date || new Date().toISOString(), description: expense.description || expense.descripcion || '', amount: Number(expense.amount || expense.monto || 0), category: expense.category || expense.tipo || 'general' }
-        setExpenses(prev => [...prev, e])
-        return e
-      },
-      updateExpense: (id, patch) => {
-        setExpenses(prev => prev.map(x => x.id === id ? { ...x, ...patch } : x))
-      },
-      removeExpense: (id) => {
-        setExpenses(prev => prev.filter(x => x.id !== id))
-      },
-
-      // Reportes guardados (historial)
-      saveReport: (report) => {
-        // report: { id?, date?, type?, data, pdfUrl?, summary? }
-        const r = { id: report.id || ('report_' + Date.now()), date: report.date || new Date().toISOString(), type: report.type || 'manual', data: report.data || {}, pdfUrl: report.pdfUrl || null, summary: report.summary || {} }
-        setSavedReports(prev => [r, ...(prev || [])])
-        return r
-      },
-      getReport: (id) => {
-        return (savedReports || []).find(r => r.id === id) || null
-      },
-      deleteReport: (id) => {
-        setSavedReports(prev => (prev || []).filter(r => r.id !== id))
-      },
-
-      // 💳 Registrar pago de fiado
-      payFiado: (cliente, monto) => {
-        setFiados((prev) =>
-          prev
-            .map((f) =>
-              f.nombre === cliente
-                ? { ...f, deuda: Math.max(0, f.deuda - monto) }
-                : f
-            )
-            .filter((f) => f.deuda > 0)
-        );
-      },
-      // CRUD clientes fiados (más completo, usado por UI Fiados)
-      addFiadoClient: (client) => {
-        const withId = { id: client.id || Date.now(), ...client };
-        setFiados(prev => [...prev, { ...withId, deuda: Number(withId.deuda||0), movimientos: withId.movimientos || [] }]);
-        return withId;
-      },
-      updateFiadoClient: (id, patch) => {
-        setFiados(prev => prev.map(f => f.id === id ? { ...f, ...patch } : f));
-      },
-      removeFiadoClient: (id) => {
-        setFiados(prev => prev.filter(f => f.id !== id));
-      },
-      addFiadoEntry: (clientId, entry) => {
-        setFiados(prev => prev.map(f => {
-          if (f.id !== clientId) return f
-          const e = { id: entry.id || Date.now(), amount: Number(entry.amount||0), dateTaken: entry.dateTaken || new Date().toISOString().slice(0,10), dueDate: entry.dueDate || null, note: entry.note || '', payments: [], active: true, saleId: entry.saleId || null }
-          const nf = { ...f, movimientos: [...(f.movimientos||[]), e], deuda: Number(f.deuda || 0) + Number(e.amount) }
-          return nf
-        }))
-      },
-      registerFiadoPayment: (clientId, entryId, { amount, method, accountId, date }) => {
-        // date: optional ISO string representing payment date; if not provided, now is used
-        let payment = null
-        setFiados(prev => prev.map(f => {
-          if (f.id !== clientId) return f
-          const nextMov = (f.movimientos || []).map(m => {
-            if (m.id !== entryId) return m
-            const pd = date || new Date().toISOString()
-            const p = { id: 'pay_' + Date.now(), date: pd, amount: Number(amount||0), method: method || 'efectivo', accountId: accountId || null, onTime: (() => { try { return isPaymentOnOrBeforeDue(pd, m.dueDate) } catch(e){ return true } })() }
-            payment = p
-            return { ...m, payments: [...(m.payments||[]), p] }
-          })
-          const totalOutstanding = nextMov.reduce((s, m) => s + (m.active ? (Number(m.amount) - (m.payments ? m.payments.reduce((sp, pp)=> sp + Number(pp.amount || 0),0) : 0)) : 0), 0)
-          return { ...f, movimientos: nextMov, deuda: Number(totalOutstanding) }
-        }))
-        if (payment) {
-          try{ actions.registerPayment({ relatedId: clientId, type: 'fiado', metodo: payment.method, amount: payment.amount, date: payment.date, accountId: payment.accountId, entryId: entryId }) }catch(e){ console.warn('registerPayment failed', e) }
-          return { ok: true, payment }
-        }
-        return { ok:false }
-      },
-      toggleFiadoEntryActive: (clientId, entryId) => {
-        setFiados(prev => prev.map(f => {
-          if (f.id !== clientId) return f
-          const nextMov = (f.movimientos||[]).map(m => m.id === entryId ? { ...m, active: !m.active, removedAt: (!m.active ? null : new Date().toISOString()) } : m)
-          const totalOutstanding = nextMov.reduce((s, m) => s + (m.active ? (Number(m.amount) - (m.payments ? m.payments.reduce((sp, pp)=> sp + Number(pp.amount || 0),0) : 0)) : 0), 0)
-          return { ...f, movimientos: nextMov, deuda: Number(totalOutstanding) }
-        }))
-      },
-      removeFiadoEntry: (clientId, entryId) => {
-        setFiados(prev => prev.map(f => {
-          if (f.id !== clientId) return f
-          const nextMov = (f.movimientos||[]).filter(m => m.id !== entryId)
-          const totalOutstanding = nextMov.reduce((s, m) => s + (m.active ? (Number(m.amount) - (m.payments ? m.payments.reduce((sp, pp)=> sp + Number(pp.amount || 0),0) : 0)) : 0), 0)
-          return { ...f, movimientos: nextMov, deuda: Number(totalOutstanding) }
-        }))
-      },
-      updateFiadoEntry: (clientId, entryId, patch) => {
-        setFiados(prev => prev.map(f => {
-          if (f.id !== clientId) return f
-          const nextMov = (f.movimientos||[]).map(m => m.id === entryId ? { ...m, ...patch } : m)
-          const totalOutstanding = nextMov.reduce((s, m) => s + (m.active ? (Number(m.amount) - (m.payments ? m.payments.reduce((sp, pp)=> sp + Number(pp.amount || 0),0) : 0)) : 0), 0)
-          return { ...f, movimientos: nextMov, deuda: Number(totalOutstanding) }
-        }))
-      },
-      // 🔁 Cambiar estados de una venta (persistente)
-      registerSaleStateChange: (id, patch) => {
-        setSales(prev => prev.map(s => s.id === id ? { ...s, ...patch } : s));
-      },
-
-      // 🏦 Gestión de cuentas bancarias
-      addBankAccount: (account) => {
-        // account: { bankName, type, number, holder, cbu, alias }
-        const withId = { id: Date.now(), ...account };
-        setBankAccounts(prev => [...prev, withId]);
-        return withId;
-      },
-      getBankAccounts: () => bankAccounts,
-
-      // 🧰 Servicios
-      addService: (svc) => {
-        const withId = { id: Date.now(), ...svc };
-        setServices(prev => [...prev, withId]);
-        try {
-          if (import.meta.env.VITE_USE_FIRESTORE === 'true') {
-            ;(async () => {
-              try {
-                const fid = await fh.createDoc('servicios', withId)
-                setServices(prev => prev.map(x => x.id === withId.id ? { ...x, fsId: fid } : x))
-              } catch(e) { console.warn('Firestore create service failed', e) }
-            })()
-          }
-        } catch(e) {}
-        return withId;
-      },
-      // Actualizar servicio
-      updateService: (id, patch) => {
-        setServices(prev => prev.map(s => s.id === id ? { ...s, ...patch } : s));
-        try {
-          if (import.meta.env.VITE_USE_FIRESTORE === 'true') {
-            ;(async () => {
-              try {
-                const svc = services.find(s => s.id === id)
-                if (svc && svc.fsId) await fh.updateDocById('servicios', svc.fsId, { ...svc, ...patch })
-              } catch(e){ console.warn('Firestore update service failed', e) }
-            })()
-          }
-        } catch(e){}
-      },
-      // Eliminar servicio
-      removeService: (id) => {
-        setServices(prev => prev.filter(s => s.id !== id));
-        try {
-          const svc = services.find(s => s.id === id)
-          if (svc && import.meta.env.VITE_USE_FIRESTORE === 'true' && svc.fsId) {
-            ;(async ()=>{ try{ await fh.updateDocById('servicios', svc.fsId, { deleted: true }) }catch(e){ console.warn('Firestore soft-delete service failed', e) } })()
-          }
-        } catch(e){}
-      },
-
-      // Eliminar venta (revierte stock y borra la venta)
-      deleteSale: (id) => {
-        const sale = sales.find(s => s.id === id);
-        if (!sale) return { ok: false, error: 'Sale not found' };
-        // revertir stock
-        if (sale.items && sale.items.length) {
-          setProducts(prev => prev.map(prod => {
-            const item = sale.items.find(i => i.id === prod.id);
-            if (item) return { ...prod, stock: (prod.stock || 0) + (item.qty || 0) };
-            return prod;
-          }))
-        }
-        // eliminar venta
-        setSales(prev => prev.filter(s => s.id !== id));
-        return { ok: true, sale };
-      },
-
-      // Actualizar venta (recalcula stock según diferencia entre venta vieja y nueva)
-      updateSale: (id, newSale) => {
-        const old = sales.find(s => s.id === id);
-        if (!old) return { ok: false, error: 'Sale not found' };
-        // Primero revertir el stock de la venta antigua
-        if (old.items && old.items.length) {
-          setProducts(prev => prev.map(prod => {
-            const item = old.items.find(i => i.id === prod.id);
-            if (item) return { ...prod, stock: (prod.stock || 0) + (item.qty || 0) };
-            return prod;
-          }))
-        }
-        // Luego aplicar la nueva venta (restar cantidades)
-        if (newSale.items && newSale.items.length) {
-          setProducts(prev => prev.map(prod => {
-            const item = newSale.items.find(i => i.id === prod.id);
-            if (item) return { ...prod, stock: Math.max(0, (prod.stock || 0) - (item.qty || 0)) };
-            return prod;
-          }))
-        }
-        // Reemplazar la venta en el array
-        setSales(prev => prev.map(s => s.id === id ? { ...newSale } : s));
-        return { ok: true, old };
-      },
-
-      // 📝 Presupuestos y facturación (cliente-side minimal)
-      addPresupuesto: (pres) => {
-        // pres: { clienteId, clienteData, items: [{desc, qty, price}], totals, status }
-        const p = { id: 'pre_' + Date.now(), date: new Date().toISOString(), ...pres };
-        setPresupuestos(prev => [...prev, p]);
-        return p;
-      },
-
-      convertPresupuestoToInvoice: (presupuestoId) => {
-        const pres = presupuestos.find(p => p.id === presupuestoId);
-        if (!pres) return null;
-        const inv = { id: 'inv_' + Date.now(), date: new Date().toISOString(), presupuestoId, cliente: pres.clienteData, items: pres.items, total: pres.totals.total, status: 'pending' };
-        setInvoices(prev => [...prev, inv]);
-        setPresupuestos(prev => prev.map(p => p.id === presupuestoId ? { ...p, status: 'converted' } : p));
-        return inv;
-      },
-
-      // Convertir presupuesto directamente a venta (registra venta y ajusta stock)
-      convertPresupuestoToSale: (presupuestoId) => {
-        const pres = presupuestos.find(p => p.id === presupuestoId);
-        if (!pres) return null;
-        try {
-          const sale = {
-            id: 's_' + Date.now(),
-            date: new Date().toISOString(),
-            items: (pres.items || []).map(it => ({ id: it.id || it.desc, name: it.desc, qty: Number(it.qty||1), price: Number(it.price||0), type: 'product' })),
-            total: pres.totals.total,
-            profit: 0,
-            type: 'minorista',
-            metodoPago: pres.condicion === 'contado' ? 'efectivo' : '',
-            entregado: false,
-            pagado: pres.condicion === 'contado',
-            clienteFiado: pres.condicion === 'fiado' ? (pres.clienteData && pres.clienteData.id) : null,
-          }
-          // registrar venta (actualiza stock y guarda en sales)
-          actions.registerSale(sale)
-          // marcar presupuesto como convertido/accepted
-          setPresupuestos(prev => prev.map(p => p.id === presupuestoId ? { ...p, status: 'accepted', convertedAt: new Date().toISOString() } : p))
-          return sale
-        } catch(e) { console.warn('convertPresupuestoToSale failed', e); return null }
-      },
-
-      // Registrar pago (asocia a invoice, venta o fiado). Soporta pagos parciales para ventas.
-      registerPayment: (payment) => {
-        // payment: { relatedId, type: 'invoice'|'sale'|'fiado', metodo, amount, date, accountId, entryId }
-        const p = { id: 'pay_' + Date.now(), date: payment.date || new Date().toISOString(), ...payment };
-        setPayments(prev => [...prev, p]);
-
-        // si es invoice actualizar estado (comportamiento previo)
-        if (payment.type === 'invoice') {
-          setInvoices(prev => prev.map(inv => inv.id === payment.relatedId ? { ...inv, status: 'paid' } : inv));
-        }
-
-        // si es venta: registrar pago parcial/total en la venta
-        if (payment.type === 'sale') {
-          // Añadir el pago dentro de la venta (sales[*].payments)
-          setSales(prev => prev.map(s => {
-            if (s.id !== payment.relatedId) return s;
-            const nextPayments = [...(s.payments || []), p];
-            const totalPaid = nextPayments.reduce((sum, pp) => sum + Number(pp.amount || 0), 0);
-            const pagado = totalPaid >= Number(s.total || 0);
-            return { ...s, payments: nextPayments, pagado };
-          }));
-
-          // Si la venta está asociada a un cliente fiado, también registrar el pago sobre el movimiento relacionado
+      // Persistir venta (always push normalized object)
+      setSales(prev => [...prev, newSale]);
+      try {
+        // Crear una transacción por cada ítem (producto) vendido para que tablas tipo "Últimas transacciones" muestren producto/cantidad
+        const paymentsSum = (newSale.payments || []).reduce((s,p) => s + Number(p.amount || 0), 0);
+        const remainingDebt = newSale.type === 'fiado' ? Math.max(0, Number(newSale.total || 0) - paymentsSum) : 0;
+        (newSale.items || []).forEach(it => {
           try {
-            const sale = sales.find(s => s.id === payment.relatedId);
-            if (sale && sale.type === 'fiado' && sale.clienteFiado) {
-              const clienteId = typeof sale.clienteFiado === 'string' ? parseInt(sale.clienteFiado) : sale.clienteFiado;
-              const cliente = (fiados || []).find(f => f.id === clienteId || f.nombre === sale.clienteFiado);
-              if (cliente) {
-                // encontrar movimiento que referencia esta venta (saleId)
-                const movimiento = (cliente.movimientos || []).find(m => String(m.saleId) === String(sale.id));
+            const isService = String(it.id || '').startsWith('svc_');
+            const txItem = {
+              id: 'tx_' + Date.now().toString() + '_' + (isService ? 'svc' : String(it.id)),
+              tipo: 'venta',
+              fecha: newSale.date,
+              saleId: newSale.id,
+              productoId: isService ? null : it.id,
+              nombreProducto: it.name || it.nombre || (isService ? (it.name || 'Servicio') : ''),
+              cantidad: Number(it.qty || it.quantity || 0),
+              total: Number(it.qty || it.quantity || 0) * Number(it.price || it.precio || 0),
+              metodoPago: newSale.metodoPago || null,
+              categoria: newSale.type || null,
+              cliente: (newSale.customer && (newSale.customer.name || newSale.customer.nombre)) || newSale.clienteFiado || null,
+              direccion: (newSale.customer && (newSale.customer.address || newSale.customer.direccion)) || null,
+              pagado: !!newSale.pagado,
+              entregado: !!newSale.entregado,
+              deudaActual: remainingDebt,
+                 businessUnit: (!isService ? ((it.productSnapshot && it.productSnapshot.businessUnit) || (products && products.find ? (products.find(p => String(p.id) === String(it.id))?.businessUnit) : undefined) || newSale.businessUnit || 'sin_especificar') : (newSale.businessUnit || 'sin_especificar'))
+            };
+            // incluir descripción si el item la trae (útil para servicios)
+            if (it.descripcion || it.description) txItem.descripcion = it.descripcion || it.description;
+            setTransactions(prev => [...prev, txItem]);
+          } catch (e) { console.warn('registrar tx item falló', e) }
+        });
+      } catch (e) {
+        console.warn('Registro de transacción de venta falló', e);
+      }
+      return newSale;
+    },
+
+    registerSale: async (sale) => {
+      // alias for addSale but returns the registered sale (also sanitize)
+      function parseNum(x){
+        try{ if (x === null || x === undefined || x === '') return 0; const s = String(x).trim(); const ss = (s.indexOf('.')!==-1 && s.indexOf(',')!==-1) ? s.replace(/\./g,'').replace(/,/g,'.') : (s.indexOf(',')!==-1 ? s.replace(/,/g,'.') : s); const n = Number(ss.replace(/[^0-9.\-]/g,'')); if (isNaN(n)) return 0; const MAX = 1e12; if (Math.abs(n) > MAX) return Math.sign(n)*MAX; return n }catch(e){return 0}
+      }
+      const paymentsArr = Array.isArray(sale.payments) ? sale.payments.map(p=> ({ ...p, amount: parseNum(p.amount) })) : []
+      const paymentsSum = paymentsArr.reduce((s,p) => s + Number(p.amount || 0), 0)
+      const items = Array.isArray(sale.items) ? sale.items.map(it => ({
+        ...it,
+        qty: Number(parseNum(it.qty || it.quantity || 0)),
+        price: Number(parseNum(it.price || it.unitPrice || it.amount || 0)),
+        cost: Number(parseNum(it.cost || it.unitCost || 0))
+      })) : sale.items
+      let computedTotal = 0
+      if (Array.isArray(items) && items.length) computedTotal = items.reduce((acc,it) => acc + (Number(it.price || 0) * Number(it.qty || 0)), 0)
+      const givenTotal = parseNum(sale.total || sale.totalVenta || sale.amount || sale.monto || 0)
+      const totalToUse = (givenTotal && givenTotal > 0) ? Math.min(givenTotal, 1e12) : computedTotal
+      const newSale = {
+        ...sale,
+        id: sale.id || Date.now().toString(),
+        date: sale.date || new Date().toISOString(),
+        payments: paymentsArr,
+        pagado: paymentsSum || 0,
+        items,
+        total: Number(totalToUse || 0),
+        type: sale.type || (sale.isPresupuesto ? 'presupuesto' : 'venta'),
+      };
+      // Enriquecer items con snapshot del producto
+      try{
+        if (Array.isArray(newSale.items)){
+          newSale.items = newSale.items.map(it => {
+            const prod = (products || []).find(p => String(p.id) === String(it.id));
+            const snapshot = prod ? {
+              id: prod.id,
+              name: prod.name || prod.title || prod.descripcion || '',
+              descripcion: prod.descripcion || prod.description || '',
+              medidas: prod.medidas || prod.measures || null,
+              stock: Number(prod.stock || 0),
+              cost: Number(prod.cost || prod.unitCost || 0),
+              price: Number(it.price || it.unitPrice || prod.price || prod.precio || 0),
+              businessUnit: prod.businessUnit || prod.unit || 'sin_especificar'
+            } : null;
+            return { ...it, productSnapshot: snapshot };
+          });
+        }
+      }catch(e){ console.warn('registerSale: failed to enrich items', e) }
+
+      // Descontar stock por cada item vendido
+      if (newSale.items && Array.isArray(newSale.items)) {
+        setProducts(prev => {
+          const next = [...prev];
+          newSale.items.forEach(it => {
+            try{
+              const prodId = it && it.productSnapshot ? it.productSnapshot.id : it.id;
+              const idx = next.findIndex(p => String(p.id) === String(prodId));
+              if (idx !== -1 && !String(prodId).startsWith('svc_')) {
+                const qty = Number(it.qty || it.quantity || 0);
+                next[idx] = { ...next[idx], stock: Math.max(0, Number(next[idx].stock || 0) - qty) };
+              }
+            }catch(e){ }
+          });
+          return next;
+        });
+      }
+
+      setSales(prev => [...prev, newSale]);
+      try {
+        // Crear transacciones por ítem (igual que en addSale)
+        const paymentsSum = (newSale.payments || []).reduce((s,p) => s + Number(p.amount || 0), 0);
+        const remainingDebt = newSale.type === 'fiado' ? Math.max(0, Number(newSale.total || 0) - paymentsSum) : 0;
+        (newSale.items || []).forEach(it => {
+          try {
+            const isService = String(it.id || '').startsWith('svc_');
+            const txItem = {
+              id: 'tx_' + Date.now().toString() + '_' + (isService ? 'svc' : String(it.id)),
+              tipo: 'venta',
+              fecha: newSale.date,
+              saleId: newSale.id,
+              productoId: isService ? null : it.id,
+              nombreProducto: it.name || it.nombre || (isService ? (it.name || 'Servicio') : ''),
+              cantidad: Number(it.qty || it.quantity || 0),
+              total: Number(it.qty || it.quantity || 0) * Number(it.price || it.precio || 0),
+              metodoPago: newSale.metodoPago || null,
+              categoria: newSale.type || null,
+              cliente: (newSale.customer && (newSale.customer.name || newSale.customer.nombre)) || newSale.clienteFiado || null,
+              direccion: (newSale.customer && (newSale.customer.address || newSale.customer.direccion)) || null,
+              pagado: !!newSale.pagado,
+              entregado: !!newSale.entregado,
+              deudaActual: remainingDebt,
+              businessUnit: (!isService ? ((it && it.productSnapshot && it.productSnapshot.businessUnit) || (products && products.find ? (products.find(p => String(p.id) === String(it.id))?.businessUnit) : undefined) || newSale.businessUnit || 'sin_especificar') : (newSale.businessUnit || 'sin_especificar'))
+            };
+            // incluir descripción si el item la trae (útil para servicios)
+            if (it.descripcion || it.description) txItem.descripcion = it.descripcion || it.description;
+            setTransactions(prev => [...prev, txItem]);
+          } catch (e) { console.warn('registrar tx item falló', e) }
+        });
+      } catch (e) {
+        console.warn('Registro de transacción de venta (registerSale) falló', e);
+      }
+      return newSale;
+    },
+
+    registerSaleStateChange: async (saleId, updates) => {
+      setSales(prev => prev.map(s => s.id === saleId ? { ...s, ...updates, updatedAt: new Date().toISOString() } : s));
+      return { ok: true };
+    },
+
+    deleteSale: (saleId) => {
+      // Revert stock for products in the sale (if products stored by numeric id)
+      const sale = (sales || []).find(s => s.id === saleId);
+      if (sale && sale.items && sale.items.length) {
+        setProducts(prev => {
+          const next = [...prev];
+          sale.items.forEach(it => {
+            try {
+              const rawId = typeof it.id === 'string' && it.id.startsWith('svc_') ? parseInt(it.id.replace('svc_', '')) : it.id;
+              const idx = next.findIndex(p => String(p.id) === String(rawId));
+              if (idx !== -1 && next[idx].stock != null) {
+                next[idx] = { ...next[idx], stock: Number(next[idx].stock || 0) + Number(it.qty || 0) };
+              }
+            } catch (e) { }
+          });
+          return next;
+        });
+      }
+      setSales(prev => prev.filter(s => s.id !== saleId));
+      return { ok: true };
+    },
+
+    updateSale: (id, updates) => {
+      setSales(prev => prev.map(s => {
+        if (s.id === id) {
+          // Si los items cambiaron, sincronizar stock
+          if (updates.items && Array.isArray(updates.items)) {
+            const originalItems = s.items || [];
+            setProducts(prevProd => {
+              const next = [...prevProd];
+              
+              // Primero: revertir stock de los items originales
+              originalItems.forEach(oldIt => {
+                const idx = next.findIndex(p => String(p.id) === String(oldIt.id));
+                if (idx !== -1 && !String(oldIt.id).startsWith('svc_')) {
+                  const qty = Number(oldIt.qty || oldIt.quantity || 0);
+                  next[idx] = { ...next[idx], stock: Number(next[idx].stock || 0) + qty };
+                }
+              });
+              
+              // Luego: descontar stock de los nuevos items
+              updates.items.forEach(newIt => {
+                const idx = next.findIndex(p => String(p.id) === String(newIt.id));
+                if (idx !== -1 && !String(newIt.id).startsWith('svc_')) {
+                  const qty = Number(newIt.qty || newIt.quantity || 0);
+                  next[idx] = { ...next[idx], stock: Math.max(0, Number(next[idx].stock || 0) - qty) };
+                }
+              });
+              
+              return next;
+            });
+          }
+          return { ...s, ...updates };
+        }
+        return s;
+      }));
+    },
+
+    // PAGOS DE VENTAS
+    registerPayment: (payment) => {
+      const { relatedId, type, amount, metodo, accountId, date } = payment;
+      
+      if (type === 'sale') {
+        // construir el objeto de pago para adjuntar tanto a la venta como a la transacción (si existe)
+        const newPayment = {
+          id: Date.now().toString(),
+          amount: Number(amount),
+          metodo: metodo || 'efectivo',
+          accountId: accountId || null,
+          date: date || new Date().toISOString(),
+        };
+
+        setSales(prev => prev.map(s => {
+          if (s.id === relatedId) {
+            const payments = [...(s.payments || []), newPayment];
+            const totalPaid = payments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+            return {
+              ...s,
+              payments,
+              pagado: totalPaid,
+              pagado_completo: totalPaid >= (s.total || 0),
+            };
+          }
+          return s;
+        }));
+
+        // También sincronizar el pago con la transacción correspondiente (si existe)
+        try {
+          setTransactions(prev => (prev || []).map(t => {
+            if (t.saleId === relatedId) {
+              const payments = [...(t.payments || []), newPayment];
+              const totalPaid = payments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+              return { ...t, payments, pagado: totalPaid >= (t.total || 0) };
+            }
+            return t;
+          }));
+        } catch (e) { console.warn('sync tx payment failed', e) }
+
+        // Sincronizar con fiado si es venta de fiado
+        setSales(prevSales => {
+          const sale = prevSales.find(s => s.id === relatedId);
+          if (sale && sale.type === 'fiado' && sale.clienteFiado) {
+            setFiados(prevFiados => prevFiados.map(f => {
+              if (f.id === sale.clienteFiado) {
+                const movimiento = f.movimientos?.find(m => m.saleId === relatedId);
                 if (movimiento) {
-                  // reutilizar registerFiadoPayment para consistencia (usa setFiados internamente)
-                  actions.registerFiadoPayment(cliente.id, movimiento.id, { amount: payment.amount, method: payment.metodo || payment.method, accountId: payment.accountId });
+                  return {
+                    ...f,
+                    movimientos: f.movimientos.map(m => {
+                      if (m.id === movimiento.id) {
+                        const payments = [...(m.payments || []), {
+                          id: Date.now().toString(),
+                          amount: Number(amount),
+                          method: metodo || 'efectivo',
+                          date: date || new Date().toISOString(),
+                        }];
+                        const pagado = payments.reduce((s, p) => s + Number(p.amount || 0), 0);
+                        return { ...m, payments, pagado };
+                      }
+                      return m;
+                    }),
+                  };
                 }
               }
-            }
-          } catch(e) { console.warn('registerPayment: sync to fiados failed', e) }
-        }
-
-        return p;
-      },
-      // 🔄 Sincronizar productos locales a Firestore (manual)
-      syncProductsToFirestore: async () => {
-        if (!(import.meta.env.VITE_USE_FIRESTORE === 'true')) return { ok: false, error: 'Firestore sync disabled' }
-        try{
-          for (const p of products) {
-            if (!p.fsId) {
-              const fid = await fh.createDoc('productos', p)
-              setProducts(prev => prev.map(x => x.id === p.id ? { ...x, fsId: fid } : x))
-            }
+              return f;
+            }));
           }
-          return { ok: true }
-        }catch(e){
-          return { ok: false, error: String(e) }
-        }
-      },
-    }),
-    [setProducts, setSales, setEntries, setFiados, setServices, setBankAccounts, setPresupuestos, setInvoices, setPayments, setExpenses, products, sales, entries, fiados, services, bankAccounts, presupuestos, invoices, payments, expenses]
-  );
-
-  // Normalizar productos antiguos en localStorage: asegurar que tengan porcentajes y precios calculados
-  useEffect(() => {
-    if (!products || products.length === 0) return;
-    let changed = false;
-    const normalized = products.map(p => {
-      // if already has porcentaje fields and prices, skip
-      if (p.porcentajeGananciaMinorista != null && p.porcentajeGananciaMayorista != null && p.price_minor != null && p.price_mayor != null) return p;
-      const cost = p.cost ?? p.price ?? 0;
-      const merged = calcPrices({ ...p, cost });
-      // preserve id if present
-      if (!merged.id && p.id) merged.id = p.id;
-      changed = true;
-      return merged;
-    });
-    if (changed) setProducts(normalized);
-  }, []);
-
-  // Si VITE_USE_FIRESTORE=true, intentar sincronizar productos que no tienen fsId (uno-a-uno no destructivo)
-  useEffect(() => {
-    try{
-      if (import.meta.env.VITE_USE_FIRESTORE === 'true' && products && products.length) {
-        products.forEach(p => {
-          if (!p.fsId) {
-            ;(async () => {
-              try{
-                const fid = await fh.createDoc('productos', p)
-                setProducts(prev => prev.map(x => x.id === p.id ? { ...x, fsId: fid } : x))
-              }catch(e){ console.warn('Sync product to Firestore failed', e) }
-            })()
-          }
-        })
+          return prevSales;
+        });
       }
-    }catch(e){}
-  }, [products]);
+    },
+
+    // CLIENTES FIADOS
+    addFiadoClient: (client) => {
+      const newClient = {
+        ...client,
+        id: client.id || Date.now(),
+        nombre: client.nombre || '',
+        dni: client.dni || '',
+        telefono: client.telefono || '',
+        direccion: client.direccion || '',
+        limite: Number(client.limite || 0),
+        deuda: Number(client.deuda || 0),
+        movimientos: client.movimientos || [],
+      };
+      setFiados(prev => [...prev, newClient]);
+      return newClient;
+    },
+
+    updateFiadoClient: (clientId, updates) => {
+      setFiados(prev => prev.map(c => c.id === clientId ? { ...c, ...updates } : c));
+    },
+
+    deleteFiadoClient: (clientId) => {
+      setFiados(prev => prev.filter(c => c.id !== clientId));
+    },
+
+    removeFiadoClient: (clientId) => {
+      setFiados(prev => prev.filter(c => c.id !== clientId));
+    },
+
+    // MOVIMIENTOS DE FIADO (ENTRADAS DE DEUDA)
+    addFiadoEntry: (clientId, entry) => {
+      setFiados(prev => prev.map(c => {
+        if (c.id === clientId) {
+          const newEntry = {
+            ...entry,
+            id: entry.id || Date.now(),
+            dateTaken: entry.dateTaken || new Date().toISOString().slice(0, 10),
+            dueDate: entry.dueDate || null,
+            amount: Number(entry.amount || 0),
+            payments: entry.payments || [],
+            active: entry.active !== false,
+            saleId: entry.saleId || null,
+          };
+          const newDeuda = Number(c.deuda || 0) + Number(entry.amount || 0);
+          return {
+            ...c,
+            movimientos: [...(c.movimientos || []), newEntry],
+            deuda: newDeuda,
+          };
+        }
+        return c;
+      }));
+    },
+
+    updateFiadoEntry: (clientId, entryId, updates) => {
+      setFiados(prev => prev.map(c => {
+        if (c.id === clientId) {
+          const newMovimientos = c.movimientos.map(m => {
+            if (m.id === entryId) {
+              return { ...m, ...updates };
+            }
+            return m;
+          });
+          return { ...c, movimientos: newMovimientos };
+        }
+        return c;
+      }));
+    },
+
+    removeFiadoEntry: (clientId, entryId) => {
+      setFiados(prev => prev.map(c => {
+        if (c.id === clientId) {
+          const entry = c.movimientos.find(m => m.id === entryId);
+          const newDeuda = entry ? Number(c.deuda || 0) - Number(entry.amount || 0) : Number(c.deuda || 0);
+          return {
+            ...c,
+            movimientos: c.movimientos.filter(m => m.id !== entryId),
+            deuda: Math.max(0, newDeuda),
+          };
+        }
+        return c;
+      }));
+    },
+
+    toggleFiadoEntryActive: (clientId, entryId) => {
+      setFiados(prev => prev.map(c => {
+        if (c.id === clientId) {
+          return {
+            ...c,
+            movimientos: c.movimientos.map(m => {
+              if (m.id === entryId) {
+                return { ...m, active: !m.active };
+              }
+              return m;
+            }),
+          };
+        }
+        return c;
+      }));
+    },
+
+    // PAGOS DE FIADO
+    registerFiadoPayment: (clientId, entryId, paymentData) => {
+      let success = false;
+      setFiados(prev => prev.map(c => {
+        if (c.id === clientId) {
+          const newMovimientos = c.movimientos.map(m => {
+            if (m.id === entryId) {
+              const newPayment = {
+                id: Date.now().toString(),
+                amount: Number(paymentData.amount || 0),
+                method: paymentData.method || 'efectivo',
+                accountId: paymentData.accountId || null,
+                date: paymentData.date || new Date().toISOString(),
+              };
+              const payments = [...(m.payments || []), newPayment];
+              const pagado = payments.reduce((s, p) => s + Number(p.amount || 0), 0);
+              success = true;
+              return { ...m, payments, pagado };
+            }
+            return m;
+          });
+          // Recalcular deuda total
+          const totalDeuda = newMovimientos.reduce((sum, m) => {
+            if (m.active !== false) {
+              const pagado = (m.payments || []).reduce((s, p) => s + Number(p.amount || 0), 0);
+              return sum + Math.max(0, Number(m.amount || 0) - pagado);
+            }
+            return sum;
+          }, 0);
+          return { ...c, movimientos: newMovimientos, deuda: totalDeuda };
+        }
+        return c;
+      }));
+      return { ok: success };
+    },
+
+    // COMPANY SETTINGS
+    updateCompany: (patch) => {
+      setCompany(prev => ({ ...(prev || {}), ...(patch || {}) }));
+      return { ok: true };
+    },
+
+    // CUENTAS BANCARIAS
+    addBankAccount: (account) => {
+      const newAccount = {
+        ...account,
+        id: account.id || Date.now().toString(),
+        bankName: account.bankName || '',
+        number: account.number || '',
+        type: account.type || '',
+        holder: account.holder || '',
+      };
+      setBankAccounts(prev => [...prev, newAccount]);
+    },
+
+    updateBankAccount: (id, updates) => {
+      setBankAccounts(prev => prev.map(b => b.id === id ? { ...b, ...updates } : b));
+    },
+
+    deleteBankAccount: (id) => {
+      setBankAccounts(prev => prev.filter(b => b.id !== id));
+    },
+
+    // GASTOS / EXPENSES
+    addExpense: (expense) => {
+      const newExpense = {
+        ...expense,
+        id: expense.id || ('exp_' + Date.now().toString()),
+        date: expense.date || new Date().toISOString(),
+      };
+      setExpenses(prev => [...prev, newExpense]);
+      return newExpense;
+    },
+
+    // PRESUPUESTOS
+    addPresupuesto: (pres) => {
+      const newPres = { ...pres, id: pres.id || ('pre_' + Date.now().toString()), date: pres.date || new Date().toISOString() };
+      setPresupuestos(prev => [...(prev || []), newPres]);
+
+      // Also register a lightweight record in `sales` as history for UI (no stock impact, no transactions, no payments)
+      try {
+        const saleRecord = {
+          id: newPres.id,
+          date: newPres.date,
+          items: (newPres.items || []).map(it => ({ id: it.id || ('tmp_' + Date.now()), name: it.name || it.desc || it.description || '', qty: Number(it.qty || 1), price: Number(it.price || 0) })),
+          subtotal: newPres.subtotal || newPres.totals?.subtotal || 0,
+          discountPct: Number(newPres.discountPct || newPres.totals?.discountPercent || 0),
+          total: Number(newPres.total || newPres.totals?.total || 0),
+          type: 'presupuesto',
+          isPresupuesto: true,
+          customer: newPres.customer || newPres.clienteData || null,
+          validityDays: newPres.validityDays || newPres.totals?.validityDays || null,
+          condition: newPres.condition || newPres.condicion || null,
+          bankAccountId: newPres.bankAccountId || null,
+          observations: newPres.observations || newPres.observaciones || null,
+        };
+        // push into sales without using registerSale/addSale so we avoid side effects
+        setSales(prev => [...(prev || []), saleRecord]);
+      } catch (e) {
+        console.warn('addPresupuesto: failed to also register sale history', e)
+      }
+
+      return newPres;
+    },
+
+    convertPresupuestoToSale: (presId) => {
+      const pres = (presupuestos || []).find(p => p.id === presId);
+      if (!pres) return null;
+      const sale = {
+        id: 's_' + Date.now().toString(),
+        date: new Date().toISOString(),
+        items: (pres.items || []).map(it => ({ id: it.id || it.desc || ('tmp_' + Date.now()), name: it.desc || it.name || '', qty: Number(it.qty || 1), price: Number(it.price || 0) })),
+        total: pres.totals?.total || pres.total || 0,
+        profit: 0,
+        type: 'venta',
+        metodoPago: pres.condicion === 'Transferencia' ? 'transferencia' : 'efectivo',
+        entregado: false,
+        pagado: pres.condicion === 'contado' || pres.condicion === 'Contado',
+        customer: pres.clienteData || pres.customer || null
+      };
+
+      // Descontar stock por cada item (si corresponde)
+      if (sale.items && Array.isArray(sale.items)) {
+        setProducts(prev => {
+          const next = [...prev];
+          sale.items.forEach(it => {
+            try {
+              const rawId = typeof it.id === 'string' && it.id.startsWith('svc_') ? parseInt(it.id.replace('svc_', '')) : it.id;
+              const idx = next.findIndex(p => String(p.id) === String(rawId));
+              if (idx !== -1 && !String(it.id).startsWith('svc_')) {
+                const qty = Number(it.qty || it.quantity || 0);
+                next[idx] = { ...next[idx], stock: Math.max(0, Number(next[idx].stock || 0) - qty) };
+              }
+            } catch (e) { }
+          });
+          return next;
+        });
+      }
+
+      // Persist sale
+      setSales(prev => [...prev, sale]);
+
+      // Crear transacciones por ítem vendido
+      try {
+        const paymentsSum = (sale.payments || []).reduce((s, p) => s + Number(p.amount || 0), 0);
+        const remainingDebt = sale.type === 'fiado' ? Math.max(0, Number(sale.total || 0) - paymentsSum) : 0;
+        (sale.items || []).forEach(it => {
+          try {
+            const isService = String(it.id || '').startsWith('svc_');
+            const txItem = {
+              id: 'tx_' + Date.now().toString() + '_' + (isService ? 'svc' : String(it.id)),
+              tipo: 'venta',
+              fecha: sale.date,
+              saleId: sale.id,
+              productoId: isService ? null : it.id,
+              nombreProducto: it.name || it.nombre || (isService ? (it.name || 'Servicio') : ''),
+              cantidad: Number(it.qty || it.quantity || 0),
+              total: Number(it.qty || it.quantity || 0) * Number(it.price || it.precio || 0),
+              metodoPago: sale.metodoPago || null,
+              categoria: sale.type || null,
+              cliente: (sale.customer && (sale.customer.name || sale.customer.nombre)) || sale.clienteFiado || null,
+              direccion: (sale.customer && (sale.customer.address || sale.customer.direccion)) || null,
+              pagado: !!sale.pagado,
+              entregado: !!sale.entregado,
+              deudaActual: remainingDebt,
+            };
+            if (it.descripcion || it.description) txItem.descripcion = it.descripcion || it.description;
+            setTransactions(prev => [...prev, txItem]);
+          } catch (e) { console.warn('registrar tx item falló', e) }
+        });
+      } catch (e) { console.warn('Registro de transacción de venta falló', e) }
+
+      return sale;
+    },
+
+    convertPresupuestoToInvoice: (presId) => {
+      const sale = actions.convertPresupuestoToSale ? actions.convertPresupuestoToSale(presId) : null;
+      if (!sale) return null;
+      try {
+        if (sale.then) {
+          return sale.then(s => ({ ...s, type: 'factura' }));
+        }
+        return { ...sale, type: 'factura' };
+      } catch (e) { return sale }
+    },
+
+    // TRANSACCIONES (unificado)
+    addTransaction: (tx) => {
+      const transaction = {
+        ...tx,
+        id: tx.id || ('tx_' + Date.now().toString()),
+        fecha: tx.fecha || new Date().toISOString(),
+      };
+      setTransactions(prev => [...prev, transaction]);
+      return transaction;
+    },
+
+    // helpers específicos (compra / reposicion)
+    addPurchaseTransaction: (data) => {
+      const tx = {
+        id: data.id || ('tx_' + Date.now().toString()),
+        tipo: 'compra',
+        fecha: data.fecha || new Date().toISOString(),
+        productoId: data.productoId || null,
+        nombreProducto: data.nombreProducto || '',
+        cantidad: Number(data.cantidad || 0),
+        costoUnitario: Number(data.costoUnitario || 0),
+        total: Number(data.cantidad || 0) * Number(data.costoUnitario || 0),
+        businessUnit: data.businessUnit || undefined,
+      };
+      setTransactions(prev => [...prev, tx]);
+      // también registrar como gasto
+      const exp = { id: 'exp_' + Date.now().toString(), date: tx.fecha, description: `Compra ${tx.nombreProducto}`, amount: tx.total, category: 'materiales', businessUnit: tx.businessUnit };
+      setExpenses(prev => [...prev, exp]);
+      return tx;
+    },
+
+    addRepositionTransaction: (data) => {
+      const tx = {
+        id: data.id || ('tx_' + Date.now().toString()),
+        tipo: 'reposicion',
+        fecha: data.fecha || new Date().toISOString(),
+        productoId: data.productoId || null,
+        nombreProducto: data.nombreProducto || '',
+        cantidad: Number(data.cantidad || 0),
+        costoUnitario: Number(data.costoUnitario || 0),
+        total: Number(data.cantidad || 0) * Number(data.costoUnitario || 0),
+        businessUnit: data.businessUnit || undefined,
+      };
+      setTransactions(prev => [...prev, tx]);
+      const exp = { id: 'exp_' + Date.now().toString(), date: tx.fecha, description: `Reposición ${tx.nombreProducto}`, amount: tx.total, category: 'materiales', businessUnit: tx.businessUnit };
+      setExpenses(prev => [...prev, exp]);
+      return tx;
+    },
+
+    updateExpense: (id, updates) => {
+      setExpenses(prev => prev.map(e => e.id === id ? { ...e, ...updates } : e));
+    },
+
+    deleteExpense: (id) => {
+      setExpenses(prev => prev.filter(e => e.id !== id));
+    },
+  };
 
   return (
-    <StoreContext.Provider
-      value={{ products, sales, entries, fiados, services, bankAccounts, presupuestos, invoices, payments, expenses, savedReports, actions }}
-    >
+    <StoreContext.Provider value={{
+      sales,
+      fiados,
+      products,
+      services,
+      serviceTemplates,
+      transactions,
+      bankAccounts,
+      payments,
+      expenses,
+      company,
+      // Selector helper: calcular datos del dashboard (por unidad y totales)
+      getDashboardData: (dateRange) => {
+        try{
+          return calculateFinancialData(dateRange || { start: '1970-01-01', end: new Date().toISOString().slice(0,10) }, sales || [], expenses || [], transactions || [])
+        }catch(e){ console.warn('getDashboardData failed', e); return null }
+      },
+      actions,
+    }}>
       {children}
     </StoreContext.Provider>
   );
 }
-
-export const useStore = () => useContext(StoreContext);

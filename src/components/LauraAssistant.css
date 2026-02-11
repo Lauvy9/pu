@@ -1,0 +1,41 @@
+:root{--laura-aqua:#7EE8C1;--laura-violet:#C9A8FF;--laura-pink:#FFB1D3;--laura-white:#ffffff;--laura-shadow:0 12px 40px rgba(34,21,65,0.12)}
+
+.laura-fab-root{position:fixed;right:20px;bottom:20px;z-index:9999;font-family:Inter,system-ui,Arial,Helvetica,sans-serif}
+
+.laura-fab{width:56px;height:56px;border-radius:999px;border:none;display:flex;align-items:center;justify-content:center;cursor:pointer;background:linear-gradient(135deg,var(--laura-aqua) 0%,var(--laura-violet) 100%);box-shadow:var(--laura-shadow);transition:transform .18s ease,box-shadow .18s ease}
+.laura-fab:hover{transform:translateY(-4px)}
+.laura-fab.open{transform:scale(.98)}
+.laura-fab-avatar{width:40px;height:40px;border-radius:50%}
+
+/* Panel */
+.laura-panel{position:fixed;right:20px;bottom:92px;width:380px;max-width:calc(100vw - 40px);height:540px;background:var(--laura-white);border-radius:20px;box-shadow:var(--laura-shadow);opacity:0;transform:translateY(8px) scale(.98);pointer-events:none;display:flex;flex-direction:column;overflow:hidden;border:1px solid rgba(138,43,226,0.06);transition:opacity .18s ease,transform .18s cubic-bezier(.2,.9,.25,1)}
+.laura-panel.visible{opacity:1;transform:translateY(0) scale(1);pointer-events:auto}
+
+.laura-panel-header{padding:12px 14px;display:flex;align-items:center;gap:12px;background:linear-gradient(90deg,var(--laura-violet),var(--laura-pink));color:#fff}
+.laura-panel-title{display:flex;align-items:center;gap:10px}
+.laura-panel-avatar{width:48px;height:48px;border-radius:12px;background:rgba(255,255,255,0.06);padding:6px}
+.laura-name{font-weight:800;font-size:15px}
+.laura-tag{font-size:12px;opacity:0.95}
+.laura-close{margin-left:auto;border:0;background:transparent;color:#fff;font-size:22px;cursor:pointer}
+
+.laura-panel-body{padding:14px;flex:1;overflow:auto;background:linear-gradient(180deg,#fbfdfe,#fff)}
+.laura-empty{padding:12px;text-align:center;color:#6b7280;font-size:13px}
+
+.laura-bubble{max-width:78%;padding:10px 12px;border-radius:14px;margin-bottom:8px;word-break:break-word}
+.laura-bubble.user{align-self:flex-end;background:linear-gradient(135deg,#dffaf1,#bff3e0);color:#04332a}
+.laura-bubble.bot{align-self:flex-start;background:#fff;border:1px solid rgba(201,168,255,0.12);color:#1f2937}
+
+.laura-typing{font-size:13px;color:#6b7280;margin:6px 0}
+
+.laura-panel-footer{padding:12px;display:flex;gap:8px;align-items:center;border-top:1px solid rgba(0,0,0,0.04);background:var(--laura-white)}
+.laura-input{flex:1;padding:10px 12px;border-radius:12px;border:1px solid rgba(138,43,226,0.06);outline:none}
+.laura-send{background:linear-gradient(135deg,var(--laura-aqua),var(--laura-violet));color:#fff;border:0;padding:10px 14px;border-radius:12px;cursor:pointer;font-weight:700}
+
+@media (max-width:420px){.laura-panel{right:10px;left:10px;width:auto;bottom:80px;height:64vh}}
+
+/* typing dots (fallback) */
+.laura-typing-dots{display:inline-block;vertical-align:middle}
+.laura-typing-dots span{display:inline-block;width:6px;height:6px;background:#c7c7c7;border-radius:999px;margin:0 2px;opacity:0.4;transform: translateY(0);animation: laura-bounce 1s infinite}
+.laura-typing-dots span:nth-child(2){animation-delay:0.12s}
+.laura-typing-dots span:nth-child(3){animation-delay:0.24s}
+@keyframes laura-bounce{0%{transform:translateY(0);opacity:0.4}50%{transform:translateY(-6px);opacity:1}100%{transform:translateY(0);opacity:0.4}}

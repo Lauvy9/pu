@@ -55,7 +55,7 @@ export default function Providers() {
 
   return (
     <div className="p-4">
-      <h2 className="text-xl font-bold mb-4">📦 Proveedores</h2>
+      <h2 className="text-xl font-bold mb-4">Proveedores</h2>
 
       <form onSubmit={handleAddOrEdit} className="mb-4 flex flex-col gap-2">
         <input

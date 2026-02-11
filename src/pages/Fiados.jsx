@@ -1,12 +1,15 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useStore } from '../context/StoreContext'
 import { isPaymentOnOrBeforeDue, isAfterDue } from '../utils/dateHelpers'
+import { exportFiadosPDF } from '../utils/fiadosPdfExport'
+import { formatCurrency } from '../utils/helpers'
 
 const Fiados = () => {
-  const { bankAccounts, actions, fiados } = useStore()
+  const { bankAccounts, actions, fiados, company, sales } = useStore()
   const clientes = fiados || []
   const [nuevoCliente, setNuevoCliente] = useState({
     nombre: "",
+    dni: "",
     telefono: "",
     direccion: "",
     limite: "",
@@ -24,12 +27,12 @@ const Fiados = () => {
 
   const agregarCliente = (e) => {
     e.preventDefault();
-    if (!nuevoCliente.nombre || !nuevoCliente.telefono)
-      return setToast({ type: 'warning', text: 'Completa los campos obligatorios' });
+    if (!nuevoCliente.nombre || !nuevoCliente.dni || !nuevoCliente.telefono)
+      return setToast({ type: 'warning', text: 'Completa los campos obligatorios (nombre, DNI, teléfono)' });
 
     const toAdd = { ...nuevoCliente, id: Date.now(), deuda: Number(nuevoCliente.deuda || 0), movimientos: nuevoCliente.movimientos || [], credit: 0 }
     actions.addFiadoClient(toAdd)
-    setNuevoCliente({ nombre: "", telefono: "", direccion: "", limite: "", deuda: 0, movimientos: [], credit: 0 });
+    setNuevoCliente({ nombre: "", dni: "", telefono: "", direccion: "", limite: "", deuda: 0, movimientos: [], credit: 0 });
     setToast({ type: 'success', text: 'Cliente agregado' })
   };
 
@@ -37,25 +40,9 @@ const Fiados = () => {
   const addDebtEntry = (clientIndex, { amount, dateTaken, dueDate, note }) => {
     const client = clientes[clientIndex]
     if (!client) return
-    // Aplicar saldo a favor automáticamente
-    const rawAmount = Number(amount)
-    let remaining = rawAmount
-    const credit = Number(client.credit || 0)
-    const payments = []
-    if (credit > 0) {
-      const applied = Math.min(credit, remaining)
-      if (applied > 0) {
-        payments.push({ id: Date.now() + 1, amount: applied, date: new Date().toISOString(), method: 'saldo_adelantado', note: 'Aplicado desde saldo a favor' })
-        remaining = Math.max(0, remaining - applied)
-        // actualizar saldo a favor del cliente
-        actions.updateFiadoClient(client.id, { credit: Math.max(0, credit - applied) })
-      }
-    }
-
-    const entry = { id: Date.now(), amount: Number(remaining), dateTaken: dateTaken || new Date().toISOString().slice(0,10), dueDate: dueDate || null, note: note || '', payments }
-    // Si remaining === 0, estará pagado al 100% y queda registrado con payments
+    const entry = { id: Date.now(), amount: Number(amount), dateTaken: dateTaken || new Date().toISOString().slice(0,10), dueDate: dueDate || null, note: note || '', payments: [] }
     actions.addFiadoEntry(client.id, entry)
-    setToast({ type: 'success', text: `Entrada agregada. Aplicado ${rawAmount - remaining} desde saldo a favor.` })
+    setToast({ type: 'success', text: `Entrada de deuda agregada.` })
     return entry
   }
 
@@ -149,7 +136,7 @@ const Fiados = () => {
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
             <div>
               <h5 style={{ margin:0 }}>Pagos registrados</h5>
-              <div className="small">Total: ${totalAmount.toFixed(2)} — Pagado: ${totalPaid.toFixed(2)} — Restante: ${remaining.toFixed(2)}</div>
+              <div className="small">Total: {formatCurrency(totalAmount)} — Pagado: {formatCurrency(totalPaid)} — Restante: {formatCurrency(remaining)}</div>
             </div>
             <div style={{ width: 160 }}>
               <div style={{ height: 10, background: '#eee', borderRadius: 6, overflow: 'hidden' }}>
@@ -164,8 +151,8 @@ const Fiados = () => {
               {(entry.payments||[]).map(p => {
                 const onTime = isPaymentOnOrBeforeDue(p.date, entry.dueDate)
                 return (
-                  <li key={p.id} className="small" style={{ padding:6, borderBottom:'1px dashed #f0f0f0', display:'flex', justifyContent:'space-between' }}>
-                    <div>{new Date(p.date).toLocaleString()} — ${Number(p.amount).toFixed(2)} — {p.method} {p.accountId ? `| Cuenta: ${p.accountId}` : ''}</div>
+                    <li key={p.id}>
+                    <div>{new Date(p.date).toLocaleString()} — {formatCurrency(Number(p.amount || 0))} — {p.method}</div>
                     <div style={{ fontWeight:600, color: onTime ? '#2e7d32' : '#c62828' }}>{onTime ? 'A tiempo' : 'Vencido'}</div>
                   </li>
                 )
@@ -209,9 +196,6 @@ const Fiados = () => {
   // --- Nuevas utilidades y UI state ---
   const [toast, setToast] = useState(null)
   const [tab, setTab] = useState('movimientos')
-  const [quickPayClientIndex, setQuickPayClientIndex] = useState(null)
-  const [quickPayAmount, setQuickPayAmount] = useState('')
-  const [quickPayMethod, setQuickPayMethod] = useState('efectivo')
 
   // cerrar toast automáticamente
   useEffect(()=>{
@@ -226,89 +210,44 @@ const Fiados = () => {
       const movimientos = c.movimientos || []
       const totalDebt = movimientos.reduce((s,m)=> s + Number(m.amount || 0), 0)
       const totalPaid = movimientos.reduce((s,m)=> s + ((m.payments||[]).reduce((sp,pp)=> sp + Number(pp.amount||0),0)), 0)
-      const credit = Number(c.credit || 0)
       const pending = Math.max(0, totalDebt - totalPaid)
-      const percent = totalDebt > 0 ? Math.round((totalPaid / totalDebt) * 100) : (credit>0?100:0)
-      return { ...c, totals: { totalDebt, totalPaid, pending, percent, credit } }
+      const percent = totalDebt > 0 ? Math.round((totalPaid / totalDebt) * 100) : 0
+      return { ...c, totals: { totalDebt, totalPaid, pending, percent } }
     })
   }, [clientes])
 
   const totalsGlobal = useMemo(()=>{
     const totalDebt = clientsWithTotals.reduce((s,c)=> s + c.totals.totalDebt, 0)
     const totalPaid = clientsWithTotals.reduce((s,c)=> s + c.totals.totalPaid, 0)
-    const totalCredit = clientsWithTotals.reduce((s,c)=> s + Number(c.totals.credit || 0), 0)
-    return { totalDebt, totalPaid, totalCredit }
+    return { totalDebt, totalPaid }
   }, [clientsWithTotals])
 
-  const quickRegisterAdvance = useCallback(()=>{
-    if (quickPayClientIndex == null) return setToast({ type: 'warning', text: 'Selecciona un cliente' })
-    const client = clientes[quickPayClientIndex]
-    if(!client) return setToast({ type: 'error', text: 'Cliente no encontrado' })
-    const amount = Number(quickPayAmount || 0)
-    if(amount <= 0) return setToast({ type: 'warning', text: 'Monto inválido' })
-    // registrar como saldo a favor en el cliente
-    const newCredit = Number(client.credit || 0) + amount
-    actions.updateFiadoClient(client.id, { credit: newCredit })
-    setToast({ type: 'success', text: `Saldo a favor registrado: $${amount.toFixed(2)}` })
-    setQuickPayClientIndex(null)
-    setQuickPayAmount('')
-  }, [quickPayClientIndex, quickPayAmount, clientes])
-
-  // Export CSV de historial (movimientos + pagos)
-  const exportHistoryCSV = useCallback((clientIndex)=>{
+  // Export PDF del estado de cuenta
+  const exportFiadoPDF = useCallback(async (clientIndex)=>{
     const client = clientes[clientIndex]
     if(!client) return setToast({ type: 'error', text: 'Cliente no encontrado' })
-    const rows = []
-    rows.push(['Cliente', client.nombre])
-    rows.push([])
-    rows.push(['Tipo','MovimientoId','Fecha','Monto','Pago','Metodo','Detalle','Estado','Vence'])
-    ;(client.movimientos||[]).forEach(m => {
-      const total = Number(m.amount||0)
-      const paid = (m.payments||[]).reduce((s,p)=> s + Number(p.amount||0), 0)
-      const restante = Math.max(0, total - paid)
-      const estado = restante <= 0 ? 'Pagado' : (m.dueDate && isAfterDue(new Date(), m.dueDate) ? 'Vencido' : 'Pendiente')
-      if((m.payments||[]).length === 0){
-        rows.push(['Deuda', m.id || '', m.dateTaken || '', total, 0, '', m.note || '', estado, m.dueDate || ''])
-      } else {
-        // fila movimiento resumen
-        rows.push(['Deuda', m.id || '', m.dateTaken || '', total, paid, '', m.note || '', estado, m.dueDate || ''])
-        m.payments.forEach(p => {
-          const pOnTime = isPaymentOnOrBeforeDue(p.date, m.dueDate)
-          rows.push(['Pago', m.id || '', p.date || '', '', p.amount, p.method || '', p.note || '', pOnTime ? 'A tiempo' : 'Vencido', ''])
-        })
-      }
-    })
-    // construir CSV
-    const csv = rows.map(r => r.map(cell => `"${String(cell||'').replace(/"/g,'""')}"`).join(',')).join('\n')
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `historial_${(client.nombre||'cliente').replace(/\s+/g,'_')}.csv`
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    URL.revokeObjectURL(url)
-    setToast({ type: 'success', text: 'CSV descargado' })
-  }, [clientes])
+    try {
+      await exportFiadosPDF(client, client.movimientos || [], { company: company || {}, sales: sales || [] })
+      setToast({ type: 'success', text: 'PDF descargado exitosamente' })
+    } catch (error) {
+      setToast({ type: 'error', text: 'Error al generar PDF' })
+      console.error(error)
+    }
+  }, [clientes, company, sales])
 
   return (
     <div className="p-6">
-      <h2 className="text-2xl font-bold mb-4 text-gray-800">Gestión de Fiados</h2>
+      <h2 className="text-2xl font-bold mb-4 text-gray-800">Gestión de Clientes</h2>
 
       {/* Dashboard resumen */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
         <div className="p-4 bg-white rounded shadow">
           <div className="text-sm text-gray-500">Deuda total</div>
-          <div className="text-xl font-bold">${totalsGlobal.totalDebt.toFixed(2)}</div>
+          <div className="text-xl font-bold">{formatCurrency(totalsGlobal.totalDebt)}</div>
         </div>
         <div className="p-4 bg-white rounded shadow">
           <div className="text-sm text-gray-500">Total pagado</div>
-          <div className="text-xl font-bold">${totalsGlobal.totalPaid.toFixed(2)}</div>
-        </div>
-        <div className="p-4 bg-white rounded shadow">
-          <div className="text-sm text-gray-500">Saldos a favor</div>
-          <div className="text-xl font-bold">${totalsGlobal.totalCredit.toFixed(2)}</div>
+          <div className="text-xl font-bold">{formatCurrency(totalsGlobal.totalPaid)}</div>
         </div>
       </div>
 
@@ -321,6 +260,13 @@ const Fiados = () => {
           name="nombre"
           placeholder="Nombre completo"
           value={nuevoCliente.nombre}
+          onChange={handleChange}
+          className="border p-2 rounded"
+        />
+        <input
+          name="dni"
+          placeholder="DNI/Cédula"
+          value={nuevoCliente.dni}
           onChange={handleChange}
           className="border p-2 rounded"
         />
@@ -351,23 +297,6 @@ const Fiados = () => {
         </button>
       </form>
 
-      {/* Quick pay (saldo a favor) */}
-      <div className="mb-4 p-4 bg-white rounded shadow flex gap-4 items-center">
-        <div>
-          <select className="input" value={quickPayClientIndex ?? ''} onChange={e=>setQuickPayClientIndex(e.target.value === '' ? null : Number(e.target.value))}>
-            <option value="">Seleccionar cliente (saldo a favor)</option>
-            {clientes.map((c, idx) => <option key={c.id||idx} value={idx}>{c.nombre} — ${ (c.credit||0).toFixed ? (c.credit||0).toFixed(2) : Number(c.credit||0).toFixed(2) }</option>)}
-          </select>
-        </div>
-        <input className="input" placeholder="Monto" value={quickPayAmount} onChange={e=>setQuickPayAmount(e.target.value)} style={{ width:140 }} />
-        <select className="input" value={quickPayMethod} onChange={e=>setQuickPayMethod(e.target.value)} style={{ width:160 }}>
-          <option value="efectivo">Efectivo</option>
-          <option value="transferencia">Transferencia</option>
-          <option value="tarjeta">Tarjeta</option>
-        </select>
-        <button className="btn bg-blue-600 text-white" onClick={(e)=>{ e.preventDefault(); quickRegisterAdvance() }}>Registrar saldo a favor</button>
-      </div>
-
       {/* Tabla */}
       {clientsWithTotals.length === 0 ? (
         <p className="text-gray-500 italic">No hay clientes registrados todavía.</p>
@@ -376,12 +305,12 @@ const Fiados = () => {
           <thead>
             <tr className="bg-gray-200 text-gray-700">
               <th className="border p-2">Nombre</th>
+              <th className="border p-2">DNI</th>
               <th className="border p-2">Teléfono</th>
               <th className="border p-2">Deuda</th>
               <th className="border p-2">Pagado</th>
               <th className="border p-2">Pendiente</th>
               <th className="border p-2">% Pagado</th>
-              <th className="border p-2">Saldo a favor</th>
               <th className="border p-2">Estado</th>
               <th className="border p-2">Acciones</th>
             </tr>
@@ -407,17 +336,16 @@ const Fiados = () => {
               return (
                 <tr key={c.id || i} className="text-center border hover:bg-gray-50">
                   <td className="border p-2 text-left">{c.nombre}</td>
+                  <td className="border p-2 text-left font-mono">{c.dni || '-'}</td>
                   <td className="border p-2">{c.telefono}</td>
-                  <td className={`border p-2 ${c.totals.totalDebt > (c.limite||0) ? 'text-red-600 font-bold' : ''}`}>${c.totals.totalDebt.toFixed(2)}</td>
-                  <td className="border p-2">${c.totals.totalPaid.toFixed(2)}</td>
-                  <td className="border p-2">${c.totals.pending.toFixed(2)}</td>
+                  <td className={`border p-2 ${c.totals.totalDebt > (c.limite||0) ? 'text-red-600 font-bold' : ''}`}>{formatCurrency(c.totals.totalDebt)}</td>
+                  <td className="border p-2">{formatCurrency(c.totals.totalPaid)}</td>
+                  <td className="border p-2">{formatCurrency(c.totals.pending)}</td>
                   <td className="border p-2"><span className="px-2 py-1 rounded" style={{ background: c.totals.percent>=100? '#d1fae5' : '#eef2ff'}}>{c.totals.percent}%</span></td>
-                  <td className="border p-2">${Number(c.totals.credit||0).toFixed(2)}</td>
                   <td className="border p-2"><span style={{ background: estadoBadge.color.replace('#',''), color:'#fff', padding:'4px 8px', borderRadius:6, backgroundColor: estadoBadge.color }}>{estadoBadge.text}</span></td>
                   <td className="border p-2 flex justify-center gap-2">
                     <button onClick={() => openEditClient(i)} className="bg-indigo-600 text-white px-2 py-1 rounded hover:bg-indigo-700">⚙️ Detalles</button>
-                    <button onClick={() => { setQuickPayClientIndex(i); setQuickPayAmount(''); }} className="bg-yellow-500 text-white px-2 py-1 rounded hover:bg-yellow-600">💰 Pago rápido</button>
-                    <button onClick={() => exportHistoryCSV(i)} className="bg-gray-600 text-white px-2 py-1 rounded hover:bg-gray-700">⬇️ CSV</button>
+                    <button onClick={() => exportFiadoPDF(i)} className="bg-blue-600 text-white px-2 py-1 rounded hover:bg-blue-700">📄 PDF</button>
                     <button onClick={() => eliminarCliente(i)} className="bg-red-600 text-white px-2 py-1 rounded hover:bg-red-700">🗑 Eliminar</button>
                   </td>
                 </tr>
@@ -437,14 +365,15 @@ const Fiados = () => {
                 <h4>Datos</h4>
                 <label>Nombre</label>
                 <input className="input" value={editingClient?.nombre || ''} onChange={e=>setEditingClient(prev=>({...prev, nombre: e.target.value}))} />
+                <label>DNI/Cédula</label>
+                <input className="input" value={editingClient?.dni || ''} onChange={e=>setEditingClient(prev=>({...prev, dni: e.target.value}))} />
                 <label>Teléfono</label>
                 <input className="input" value={editingClient?.telefono || ''} onChange={e=>setEditingClient(prev=>({...prev, telefono: e.target.value}))} />
                 <label>Dirección</label>
                 <input className="input" value={editingClient?.direccion || ''} onChange={e=>setEditingClient(prev=>({...prev, direccion: e.target.value}))} />
                 <label>Límite de crédito</label>
                 <input className="input" type="number" value={editingClient?.limite || 0} onChange={e=>setEditingClient(prev=>({...prev, limite: Number(e.target.value)}))} />
-                <div style={{ marginTop: 8 }} className="small">Deuda actual: ${ (clientes[editingClientIndex]?.deuda || 0).toFixed(2) }</div>
-                <div style={{ marginTop: 8 }} className="small">Saldo a favor: ${ Number(clientes[editingClientIndex]?.credit || 0).toFixed(2) }</div>
+                <div style={{ marginTop: 8 }} className="small">Deuda actual: {formatCurrency((clientes[editingClientIndex]?.deuda || 0))}</div>
                 <div style={{ display:'flex', gap:8, marginTop:12 }}>
                   <button className="btn" onClick={saveEditedClient}>Guardar</button>
                   <button className="btn" onClick={cancelEditClient}>Cerrar</button>
@@ -475,7 +404,7 @@ const Fiados = () => {
                               <div key={entry.id} style={{ border: '1px solid #eee', padding: 8, borderRadius: 6, background: estado === 'Vencido' ? '#fff1f0' : (estado==='Por vencer' ? '#fff7ed' : '#ffffff') }}>
                                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                                   <div>
-                                    <div><strong>Monto: ${(total).toFixed(2)}</strong> — Pagado: ${(paid).toFixed(2)} — Restante: ${(restante).toFixed(2)}</div>
+                                    <div><strong>Monto: {formatCurrency(total)}</strong> — Pagado: {formatCurrency(paid)} — Restante: {formatCurrency(restante)}</div>
                                     <div className="small">Tomado: {entry.dateTaken}</div>
                                     <div className="small">Vence: {entry.dueDate || '-' } { daysLeft !== null ? `(${daysLeft}d)` : '' }</div>
                                     <div className="small">Nota: {entry.note || '-'}</div>
@@ -503,17 +432,17 @@ const Fiados = () => {
                 {tab === 'historial' && (
                   <div>
                     <h4>Historial (movimientos + pagos)</h4>
-                    <button className="btn" onClick={()=> exportHistoryCSV(editingClientIndex)}>Exportar CSV</button>
+                    <button className="btn bg-blue-600 text-white" onClick={()=> exportFiadoPDF(editingClientIndex)}>📄 Descargar Estado de Cuenta (PDF)</button>
                     <div style={{ marginTop:12 }}>
                       {(clientes[editingClientIndex]?.movimientos || []).length === 0 ? <p>No hay historial.</p> : (
                         <ul>
                           {(clientes[editingClientIndex]?.movimientos || []).map(m => (
                             <li key={m.id} style={{ marginBottom:8 }}>
-                              <div><strong>Movimiento:</strong> ${Number(m.amount||0).toFixed(2)} — Vence: {m.dueDate || '-'}</div>
+                              <div><strong>Movimiento:</strong> {formatCurrency(Number(m.amount||0))} — Vence: {m.dueDate || '-'}</div>
                               <div className="small">Notas: {m.note || '-'}</div>
                               <div style={{ marginTop:6 }}>
-                                {(m.payments||[]).map(p => (
-                                  <div key={p.id} className="small">{new Date(p.date).toLocaleString()} — ${Number(p.amount).toFixed(2)} — {p.method}</div>
+                                  {(m.payments||[]).map(p => (
+                                  <div key={p.id} className="small">{new Date(p.date).toLocaleString()} — {formatCurrency(Number(p.amount||0))} — {p.method}</div>
                                 ))}
                               </div>
                             </li>

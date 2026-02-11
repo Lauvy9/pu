@@ -11,7 +11,7 @@ import History from "./pages/History.jsx"
 import Reportes from './pages/Reportes.jsx'
 import ReportesProfesional from './pages/ReportesProfesional.jsx'
 import ReportesIntegradosCompletos from './pages/ReportesIntegradosCompletos.jsx'
-import Fiados from "./pages/Fiados.jsx"
+import Clientes from "./pages/Clientes.jsx"
 import ReportesHistory from "./pages/ReportesHistory.jsx";
 import ReportesIntegrados from './pages/ReportesIntegrados.jsx'
 import Servicios from "./pages/Servicios.jsx";
@@ -21,6 +21,7 @@ import ClientesCredito from "./pages/ClientesCredito.jsx";
 import Ofertas from "./pages/Ofertas.jsx";
 import Cobranza from "./pages/Cobranza.jsx";
 import Settings from './pages/Settings.jsx'
+import PresupuestoForm from './components/PresupuestoForm'
 
 
 
@@ -76,10 +77,11 @@ function InnerRouter(){
             <Route path="/sales" element={<Sales />} />
             <Route path="/reports" element={<Reports />} />
             <Route path="/history" element={<History />} />
-            <Route path="/fiados" element={<Fiados />} />
+            <Route path="/clientes" element={<Clientes />} />
+            <Route path="/fiados" element={<Clientes />} />
             <Route path="/cobranza" element={<Cobranza />} />
             <Route path="/servicios" element={<Servicios />} />
-            <Route path="/presupuestos" element={<Presupuestos />} />
+            <Route path="/presupuestos" element={<div className="grid"><div className="card"><PresupuestoForm /></div></div>} />
             <Route path="/pagos" element={<Pagos />} />
             <Route path="/clientes-credito" element={<ClientesCredito />} />
             <Route path="/settings" element={<Settings />} />

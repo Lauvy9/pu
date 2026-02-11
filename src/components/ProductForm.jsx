@@ -9,7 +9,8 @@ export default function ProductForm({ onAdd }) {
     price_minor: 0, 
     price_mayor: 0,
     porcentajeGananciaMinorista: 60,
-    porcentajeGananciaMayorista: 50
+    porcentajeGananciaMayorista: 50,
+    businessUnit: ''
   })
 
   function handleChange(e) {
@@ -33,7 +34,7 @@ export default function ProductForm({ onAdd }) {
   function handleSubmit(e) {
     e.preventDefault()
     onAdd(form)
-    setForm({ name: '', caracteristica: '', stock: 0, cost: 0, price_minor: 0, price_mayor: 0 })
+    setForm({ name: '', caracteristica: '', stock: 0, cost: 0, price_minor: 0, price_mayor: 0, porcentajeGananciaMinorista: 60, porcentajeGananciaMayorista: 50, businessUnit: '' })
   }
 
   return (
@@ -72,12 +73,20 @@ export default function ProductForm({ onAdd }) {
           Stock:
           <input className="input" name="stock" type="number" value={form.stock} onChange={handleChange} required min={0} />
         </label>
+            <label>
+              Unidad de negocio:
+              <select className="input" name="businessUnit" value={form.businessUnit || ''} onChange={handleChange} required>
+                <option value="">Seleccionar unidad</option>
+                <option value="muebleria">Mueblería</option>
+                <option value="vidrieria">Vidriería</option>
+              </select>
+            </label>
         <div className="flex">
           <button className="btn" type="submit">Agregar</button>
           <button 
             type="button" 
             className="btn ghost" 
-            onClick={() => setForm({ name: '', caracteristica: '', stock: 0, cost: 0, price_minor: 0, price_mayor: 0 })}
+            onClick={() => setForm({ name: '', caracteristica: '', stock: 0, cost: 0, price_minor: 0, price_mayor: 0, porcentajeGananciaMinorista: 60, porcentajeGananciaMayorista: 50, businessUnit: '' })}
           >
             Limpiar
           </button>

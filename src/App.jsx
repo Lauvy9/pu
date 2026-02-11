@@ -2,18 +2,18 @@ import { useState, useEffect } from "react";
 import Router from "./router";
 import { StoreProvider } from "./context/StoreContext";
 import { FiadosProvider } from "./context/FiadosContext";
+import LauraAssistant from "./components/LauraAssistant";
 import Login from "./components/Login";
 import Footer from "./components/Footer";
 import defaultLogo from "./assets/logoMIO.png";
-import { auth, db } from "./firebase/firebase"; // 👈 importamos auth y db
-import { signOut, onAuthStateChanged } from "firebase/auth"; // 👈 escuchamos sesión
-import { doc, onSnapshot } from 'firebase/firestore'
+import { auth, db } from "./firebase/firebase";
+import { signOut, onAuthStateChanged } from "firebase/auth";
+import { doc, onSnapshot } from 'firebase/firestore';
 
 export default function App() {
   const [usuario, setUsuario] = useState(null);
-  const [userLogo, setUserLogo] = useState(null)
+  const [userLogo, setUserLogo] = useState(null);
 
-  // Escuchar cambios de sesión (para recordar usuario logueado)
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setUsuario(user);
@@ -21,16 +21,27 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // Suscribirse al documento del usuario para obtener logo en tiempo real
-  useEffect(()=>{
-    if(!usuario) { setUserLogo(null); return }
-    const ref = doc(db, 'users', usuario.uid)
-    const unsub = onSnapshot(ref, snap => {
-      if(snap.exists()) setUserLogo(snap.data().logoURL || null)
-      else setUserLogo(null)
-    }, err => { console.error('user doc snapshot error', err); setUserLogo(null) })
-    return ()=> unsub()
-  }, [usuario])
+  useEffect(() => {
+    if (!usuario) {
+      setUserLogo(null);
+      return;
+    }
+
+    const ref = doc(db, "users", usuario.uid);
+    const unsub = onSnapshot(
+      ref,
+      (snap) => {
+        if (snap.exists()) setUserLogo(snap.data().logoURL || null);
+        else setUserLogo(null);
+      },
+      (err) => {
+        console.error("user doc snapshot error", err);
+        setUserLogo(null);
+      }
+    );
+
+    return () => unsub();
+  }, [usuario]);
 
   const handleLogout = async () => {
     await signOut(auth);
@@ -62,7 +73,6 @@ export default function App() {
                 />
                 <h1>Bienvenido, {usuario.displayName}</h1>
 
-                {/* 🔘 Botón para salir */}
                 <button
                   onClick={handleLogout}
                   style={{
@@ -79,11 +89,12 @@ export default function App() {
                 </button>
 
                 <Router />
+                <Footer />
               </div>
             )}
-          </div>
 
-          <Footer />
+            {usuario && <LauraAssistant usuario={usuario} />}
+          </div>
         </div>
       </FiadosProvider>
     </StoreProvider>

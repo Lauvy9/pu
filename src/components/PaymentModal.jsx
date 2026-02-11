@@ -72,11 +72,12 @@ export default function PaymentModal({ saleId, clientId, entryId, onClose }){
             {(sale ? (sale.payments||[]) : (entry.payments||[])).length === 0 ? <div className="small">Sin pagos</div> : (
               <ul>
                 {(sale ? (sale.payments||[]) : (entry.payments||[])).map(p => {
-                  const onTime = isPaymentOnOrBeforeDue(p.date, sale ? sale.dueDate : (entry ? entry.dueDate : null))
+                  // Solo mostrar estado de vencimiento si es un fiado (entry), no si es una venta
+                  const onTime = !entry ? true : isPaymentOnOrBeforeDue(p.date, entry?.dueDate);
                   return (
                     <li key={p.id} className="small" style={{ padding:6, borderBottom:'1px dashed #f0f0f0', display:'flex', justifyContent:'space-between' }}>
-                      <div>{new Date(p.date).toLocaleString()} — ${Number(p.amount).toFixed(2)} — {p.metodo || p.method}</div>
-                      <div style={{ fontWeight:600, color: onTime ? '#2e7d32' : '#c62828' }}>{onTime ? 'A tiempo' : 'Vencido'}</div>
+                      <div>{new Date(p.date).toLocaleString()} — {formatCurrency(Number(p.amount))} — {p.metodo || p.method}</div>
+                      {entry && <div style={{ fontWeight:600, color: onTime ? '#2e7d32' : '#c62828' }}>{onTime ? 'A tiempo' : 'Vencido'}</div>}
                     </li>
                   )
                 })}

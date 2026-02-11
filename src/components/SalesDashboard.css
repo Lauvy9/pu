@@ -1,0 +1,15 @@
+/* Estilos mínimos para SalesDashboard
+   - Evita error de importación si el archivo es referenciado
+   - Puedes ampliar estos estilos según el diseño del proyecto
+*/
+
+.reportes-dashboard {
+  display: block;
+}
+
+.sales-card {
+  background: #ffffff;
+  border-radius: 10px;
+  padding: 12px;
+  box-shadow: 0 6px 18px rgba(33,53,71,0.06);
+}

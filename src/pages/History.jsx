@@ -8,7 +8,7 @@ export default function History() {
 
   return (
     <div className="card">
-      <h3>Historial de Ventas y Fiados</h3>
+      <h3>Historial de Ventas y Clientes</h3>
 
       {(!sales || sales.length===0) && (!clientes || clientes.length===0) && <p>No hay ventas registradas</p>}
 
@@ -19,7 +19,7 @@ export default function History() {
             <th>Items</th>
             <th>Tipo</th>
             <th>Total</th>
-            <th>Cliente Fiado</th>
+            <th>Cliente</th>
             <th>Deuda Actual</th>
           </tr>
         </thead>

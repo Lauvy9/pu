@@ -22,7 +22,7 @@ export default function Ofertas() {
 
   return (
     <div className="card">
-      <h2>🔥 Productos en Oferta</h2>
+      <h2>Productos en Oferta</h2>
       {ofertas.length === 0 ? (
         <p>No hay productos en oferta.</p>
       ) : (

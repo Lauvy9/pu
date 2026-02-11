@@ -1,212 +1,174 @@
-// Utilidades para agregación y cálculo financiero
-export function parseISO(dateLike){
-  if (!dateLike) return null
-  return new Date(dateLike)
+// ===============================
+// 🧠 Helpers numéricos seguros
+// ===============================
+function _safeNumber(value) {
+  const n = Number(value);
+  return isNaN(n) ? 0 : n;
 }
 
-// Convierte valores a número de forma segura
-// Implementación interna segura para convertir a número
-function _safeNumber(v){
-  if (v === null || v === undefined || v === '') return 0
-  if (typeof v === 'number') return v
-  const n = Number(v)
-  return isNaN(n) ? 0 : n
-}
+// ===============================
+// 📊 Cálculo financiero principal
+// ===============================
+export function calculateFinancialData(dateRange, sales = [], expenses = [], purchases = []) {
+  const startDate = dateRange?.start ? new Date(dateRange.start) : null;
+  if (startDate && !isNaN(startDate)) startDate.setHours(0, 0, 0, 0);
 
-// Exportar una función estable que delega a la interna
-export function safeNumber(v){ return _safeNumber(v) }
+  const endDate = dateRange?.end ? new Date(dateRange.end) : null;
+  if (endDate && !isNaN(endDate)) endDate.setHours(23, 59, 59, 999);
 
-// Alias backwards-compatible
-export const toNum = safeNumber
-
-export function inRange(dateStr, from, to){
-  const d = parseISO(dateStr)
-  if (!d) return false
-  if (from && d < from) return false
-  if (to && d > to) return false
-  return true
-}
-
-export function filterByRange(items, dateProp, from, to){
-  return (items||[]).filter(it => inRange(it[dateProp], from, to))
-}
-
-export function aggregateSales(sales, from, to){
-  const sel = (sales||[]).filter(s => {
-    try{
-      const raw = s.date || s.fecha || s.createdAt || s.timestamp || s.created || null
-      const d = new Date(raw)
-      if (isNaN(d)) return false
-      return (!from || d >= from) && (!to || d <= to)
-    }catch(e){return false}
-  })
-
-  let totalSales = 0
-  let totalProducts = 0
-  let totalServices = 0
-  let cogs = 0
-  const byDay = {}
-
-  sel.forEach(s => {
-    const totalField = s.total || s.totalVenta || s.totalAmount || s.monto || 0
-    // Si no hay total explícito, calcular a partir de items (price * qty)
-    let computedTotal = _safeNumber(totalField)
-    if (!computedTotal && Array.isArray(s.items) && s.items.length) {
-      computedTotal = s.items.reduce((acc,it) => acc + (_safeNumber(it.price || it.unitPrice || 0) * _safeNumber(it.qty || it.quantity || 0)), 0)
-    }
-    totalSales += computedTotal
-    (s.items || []).forEach(it => {
-      const qty = _safeNumber(it.qty || it.quantity || 0)
-      const price = _safeNumber(it.price || it.unitPrice || 0)
-      const cost = _safeNumber(it.cost || it.unitCost || 0)
-      if (String(it.type || '').toLowerCase() === 'service' || String(it.id || '').startsWith('svc_')) {
-        totalServices += price * qty
-      } else {
-        totalProducts += price * qty
-      }
-      cogs += cost * qty
-    })
-    // series por día
-    try{
-      const d = new Date(s.date)
-      const key = d.toISOString().slice(0,10)
-      const totalField2 = s.total || s.totalVenta || s.totalAmount || s.monto || 0
-      let dayTotal = _safeNumber(totalField2)
-      if (!dayTotal && Array.isArray(s.items) && s.items.length) {
-        dayTotal = s.items.reduce((acc,it) => acc + (_safeNumber(it.price || it.unitPrice || 0) * _safeNumber(it.qty || it.quantity || 0)), 0)
-      }
-      byDay[key] = (byDay[key] || 0) + dayTotal
-    }catch(e){}
-  })
-
-  // convertir byDay en arrays ordenadas
-  const days = Object.keys(byDay).sort()
-  const series = days.map(d => ({ date: d, value: byDay[d] }))
-
-  return {
-    totalSales,
-    totalProducts,
-    totalServices,
-    cogs,
-    grossProfit: totalSales - cogs,
-    byDay: series
-  }
-}
-
-export function aggregateExpenses(expenses, from, to){
-  const sel = (expenses||[]).filter(e => {
-    try{ const raw = e.fecha || e.date || e.createdAt || e.timestamp || null; const d = new Date(raw); if (isNaN(d)) return false; return (!from || d >= from) && (!to || d <= to) }catch(e){return false}
-  })
-  const total = sel.reduce((s, e) => s + _safeNumber(e.monto || e.amount || e.value || 0), 0)
-  return { total, list: sel }
-}
-
-export function computeFinancials(sales, expenses, from, to){
-  // Compat wrapper: delegar a calculateFinancialData para cálculos robustos
-  try{
-    const range = { start: from ? new Date(from).toISOString() : null, end: to ? new Date(to).toISOString() : null }
-    const res = calculateFinancialData(range, sales || [], expenses || [], [])
-    return {
-      totalSales: res.totalSales,
-      totalProducts: res.totalProducts || 0,
-      totalServices: res.totalServices || 0,
-      // backward compatible keys
-      cogs: res.totalCosts || res.costoMateriales || 0,
-      // términos nuevos para vidriería/mueblería
-      costoMateriales: res.costoMateriales || res.totalCosts || 0,
-      costoVidrio: res.costoVidrio || 0,
-      costoMadera: res.costoMadera || 0,
-      costoHerrajes: res.costoHerrajes || 0,
-      costoManoObra: res.costoManoObra || 0,
-      grossProfit: res.grossProfit || res.gananciaBruta || 0,
-      gananciaBruta: res.gananciaBruta || res.grossProfit || 0,
-      byDay: res.byDay || [],
-      // gastos
-      expensesTotal: res.totalExpenses || res.gastosOperativos || 0,
-      gastosOperativos: res.gastosOperativos || res.totalExpenses || 0,
-      expensesList: res.filteredExpenses || [],
-      // neto
-      netProfit: res.netProfit || res.gananciaNeta || 0,
-      gananciaNeta: res.gananciaNeta || res.netProfit || 0,
-      margin: res.profitMargin,
-      roi: null
-    }
-  }catch(e){
-    console.error('computeFinancials wrapper failed', e)
-    return { totalSales:0, totalProducts:0, totalServices:0, cogs:0, grossProfit:0, byDay: [], expensesTotal:0, expensesList:[], netProfit:0, margin:0, roi:null }
-  }
-}
-
-// Nueva función robusta de cálculo solicitada por el usuario
-export function calculateFinancialData(dateRange, sales, expenses, purchases){
-  console.log('=== CALCULATING FINANCIAL DATA ===');
-  console.log('Date range:', dateRange);
-  console.log('Total sales:', (sales||[]).length);
-  console.log('Total expenses:', (expenses||[]).length);
-  
-  // Convertir fechas a objetos Date para comparación
-  const startDate = dateRange && dateRange.start ? new Date(dateRange.start) : null;
-  const endDate = dateRange && dateRange.end ? new Date(dateRange.end) : null;
-  if (endDate) endDate.setHours(23, 59, 59, 999); // Incluir todo el día final
-
-  console.log('Filter range:', startDate, 'to', endDate);
-
-  // Filtrar ventas por fecha CORREGIDO
-  const filteredSales = (sales||[]).filter(sale => {
-    const saleDate = new Date(sale.date || sale.fecha || sale.createdAt || sale.timestamp || null);
-    const isValid = (!startDate || (saleDate && saleDate >= startDate)) && (!endDate || (saleDate && saleDate <= endDate));
-    console.log(`Sale ${sale && sale.id ? sale.id : '<no-id>'}: ${saleDate} - ${isValid ? 'INCLUDE' : 'EXCLUDE'}`);
-    return isValid;
+  // ===============================
+  // ✅ FILTRADO POR FECHA
+  // ===============================
+  const filteredSales = sales.filter(sale => {
+    const d = new Date(
+      sale.date ||
+      sale.fecha ||
+      sale.createdAt ||
+      sale.timestamp ||
+      null
+    );
+    if (isNaN(d)) return false;
+    if (startDate && d < startDate) return false;
+    if (endDate && d > endDate) return false;
+    return true;
   });
 
-  // Filtrar gastos por fecha CORREGIDO
-  const filteredExpenses = (expenses||[]).filter(expense => {
-    const expenseDate = new Date(expense.date || expense.fecha || expense.createdAt || expense.timestamp || null);
-    const isValid = (!startDate || (expenseDate && expenseDate >= startDate)) && (!endDate || (expenseDate && expenseDate <= endDate));
-    console.log(`Expense ${expense && expense.id ? expense.id : '<no-id>'}: ${expenseDate} - ${isValid ? 'INCLUDE' : 'EXCLUDE'}`);
-    return isValid;
+  const filteredExpenses = expenses.filter(exp => {
+    const d = new Date(
+      exp.date ||
+      exp.fecha ||
+      exp.createdAt ||
+      exp.timestamp ||
+      null
+    );
+    if (isNaN(d)) return false;
+    if (startDate && d < startDate) return false;
+    if (endDate && d > endDate) return false;
+    return true;
   });
 
-  console.log('Filtered sales:', filteredSales.length);
-  console.log('Filtered expenses:', filteredExpenses.length);
-
-  // CÁLCULOS DIRECTOS - ELIMINAR computedTotal
+  // ===============================
+  // 💰 TOTALES GENERALES
+  // ===============================
   const totalSales = filteredSales.reduce((sum, sale) => {
-    const saleTotal = Number(sale.total || sale.totalVenta || sale.totalAmount || sale.monto || 0) || 0;
-    console.log(`Sale ${sale && sale.id ? sale.id : '<no-id>'} total:`, saleTotal);
-    return sum + saleTotal;
+    return sum + _safeNumber(
+      sale.total ||
+      sale.totalVenta ||
+      sale.totalAmount ||
+      sale.monto ||
+      0
+    );
   }, 0);
 
   const totalCosts = filteredSales.reduce((sum, sale) => {
-    const saleCost = (sale.items || []).reduce((itemSum, item) => {
-      const cost = Number(item.cost || item.unitCost || item.materialCost || 0) || 0;
-      const qty = Number(item.qty || item.quantity || 0) || 0;
-      const itemTotalCost = cost * (qty || 1);
-      return itemSum + itemTotalCost;
+    const saleCost = (sale.items || []).reduce((acc, item) => {
+      return acc + (
+        _safeNumber(item.cost || item.unitCost || 0) *
+        _safeNumber(item.qty || item.quantity || 0)
+      );
     }, 0);
-    console.log(`Sale ${sale && sale.id ? sale.id : '<no-id>'} cost:`, saleCost);
     return sum + saleCost;
   }, 0);
 
-  const totalExpenses = filteredExpenses.reduce((sum, expense) => {
-    const amount = Number(expense.amount || expense.monto || expense.value || expense.cost || 0) || 0;
-    console.log(`Expense ${expense && expense.id ? expense.id : '<no-id>'} amount:`, amount);
-    return sum + amount;
+  const totalExpenses = filteredExpenses.reduce((sum, exp) => {
+    return sum + _safeNumber(
+      exp.amount ||
+      exp.monto ||
+      exp.value ||
+      exp.cost ||
+      0
+    );
   }, 0);
 
   const grossProfit = totalSales - totalCosts;
   const netProfit = grossProfit - totalExpenses;
-  const profitMargin = totalSales > 0 ? (netProfit / totalSales) * 100 : 0;
+  const profitMargin = totalSales > 0
+    ? (netProfit / totalSales) * 100
+    : 0;
 
-  console.log('CALCULATION RESULTS:', {
-    totalSales,
-    totalCosts,
-    totalExpenses,
-    grossProfit,
-    netProfit,
-    profitMargin
+  // ===============================
+  // 🏪 AGRUPACIÓN POR UNIDAD
+  // ===============================
+  const totalsByUnit = {
+    muebleria: { totalSales: 0, totalCosts: 0, grossProfit: 0, netProfit: 0 },
+    vidrieria: { totalSales: 0, totalCosts: 0, grossProfit: 0, netProfit: 0 },
+    sin_especificar: { totalSales: 0, totalCosts: 0, grossProfit: 0, netProfit: 0 }
+  };
+
+  filteredSales.forEach(sale => {
+    const rawUnit =
+      sale.businessUnit ||
+      sale.unit ||
+      sale.unidad ||
+      sale.items?.[0]?.unit ||
+      sale.items?.[0]?.category ||
+      '';
+
+    const unit = rawUnit.toString().toLowerCase();
+    let key = 'sin_especificar';
+
+    if (unit.includes('mue') || unit.includes('mobi')) key = 'muebleria';
+    else if (unit.includes('vid')) key = 'vidrieria';
+
+    const saleTotal = _safeNumber(
+      sale.total ||
+      sale.totalVenta ||
+      sale.totalAmount ||
+      sale.monto ||
+      0
+    );
+
+    const saleCost = (sale.items || []).reduce((acc, item) => {
+      return acc + (
+        _safeNumber(item.cost || item.unitCost || 0) *
+        _safeNumber(item.qty || item.quantity || 0)
+      );
+    }, 0);
+
+    totalsByUnit[key].totalSales += saleTotal;
+    totalsByUnit[key].totalCosts += saleCost;
   });
 
+  // ===============================
+  // 🧾 GASTOS POR UNIDAD
+  // ===============================
+  const expensesByUnit = {
+    muebleria: 0,
+    vidrieria: 0,
+    sin_especificar: 0
+  };
+
+  filteredExpenses.forEach(exp => {
+    const rawUnit = exp.businessUnit || exp.unit || exp.unidad || '';
+    const unit = rawUnit.toString().toLowerCase();
+    let key = 'sin_especificar';
+
+    if (unit.includes('mue') || unit.includes('mobi')) key = 'muebleria';
+    else if (unit.includes('vid')) key = 'vidrieria';
+
+    expensesByUnit[key] += _safeNumber(
+      exp.amount ||
+      exp.monto ||
+      exp.value ||
+      exp.cost ||
+      0
+    );
+  });
+
+  // ===============================
+  // 📈 CÁLCULO FINAL POR UNIDAD
+  // ===============================
+  Object.keys(totalsByUnit).forEach(key => {
+    totalsByUnit[key].grossProfit =
+      totalsByUnit[key].totalSales - totalsByUnit[key].totalCosts;
+
+    totalsByUnit[key].netProfit =
+      totalsByUnit[key].grossProfit - (expensesByUnit[key] || 0);
+  });
+
+  // ===============================
+  // 🚀 RETURN FINAL
+  // ===============================
   return {
     totalSales,
     totalCosts,
@@ -214,168 +176,141 @@ export function calculateFinancialData(dateRange, sales, expenses, purchases){
     grossProfit,
     netProfit,
     profitMargin,
+    totalsByUnit,
+    expensesByUnit,
     filteredSales,
-    filteredExpenses,
-    originalSalesCount: (sales||[]).length,
-    originalExpensesCount: (expenses||[]).length
+    filteredExpenses
   };
 }
 
-// Agrega agrupación de series por periodo: 'day'|'week'|'month'
-export function aggregateSeries(byDay, period = 'day'){
-  if (!Array.isArray(byDay)) return []
-  if (period === 'day') return byDay
+// ===============================
+// 📈 Helper: Agregar/normalizar series temporales
+// ===============================
+export function aggregateSeries(data = [], granularity = 'day'){
+  // Soporta varios formatos de entrada:
+  // - Array de { date, value } o { date, total }
+  // - Objeto { labels: [], datasets: [{ data: [] }] }
+  // - Objeto mapa { '2025-01-01': 123, ... }
 
-  const map = {}
-  byDay.forEach(({ date, value }) => {
-    const d = new Date(date)
-    if (isNaN(d)) return
-    let key = ''
-    if (period === 'week'){
-      // calcular semana iniciando el lunes
-      const day = d.getDay() || 7 // make Sunday 7
-      const monday = new Date(d)
-      monday.setDate(d.getDate() - (day - 1))
-      key = monday.toISOString().slice(0,10)
-    } else if (period === 'month'){
-      key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
+  if (!data) return []
+
+  // Caso: estructura Chart.js { labels, datasets }
+  if (!Array.isArray(data) && typeof data === 'object'){
+    const labels = data.labels
+    const datasets = data.datasets
+    if (Array.isArray(labels) && Array.isArray(datasets) && datasets.length){
+      const values = datasets[0].data || []
+      return labels.map((lab, i) => ({ date: String(lab), value: Number(values[i] || 0) }))
     }
-    map[key] = (map[key] || 0) + _safeNumber(value || 0)
-  })
 
-  const entries = Object.keys(map).sort().map(k => ({ date: k, value: map[k] }))
-  return entries
+    // Caso: mapa simple { date: value }
+    const keys = Object.keys(data)
+    if (keys.length && typeof data[keys[0]] === 'number'){
+      return keys.sort().map(k => ({ date: k, value: Number(data[k] || 0) }))
+    }
+  }
+
+  // Caso: array genérico
+  if (Array.isArray(data)){
+    const mapped = data.map(item => {
+      if (item == null) return { date: '', value: 0 }
+      if (typeof item === 'number') return { date: '', value: Number(item) }
+      const date = item.date || item.label || item.x || ''
+      const value = Number(item.value ?? item.total ?? item.totalSales ?? item.amount ?? item.y ?? 0) || 0
+      const dateStr = (date instanceof Date) ? date.toISOString().slice(0,10) : String(date || '')
+      return { date: dateStr, value }
+    })
+
+    // Agregar por fecha (en caso de duplicados)
+    const acc = {}
+    mapped.forEach(({date, value}) => {
+      acc[date] = (acc[date] || 0) + (Number(value) || 0)
+    })
+    return Object.keys(acc).sort().map(k => ({ date: k, value: acc[k] }))
+  }
+
+  return []
 }
 
-// Calcula datos financieros integrados a partir de múltiples fuentes
-export function calculateIntegratedFinancialData({ sales = [], expenses = [], purchases = [], fiados = [], products = [], clients = [], dateRange = {} }){
-  try{
-    const start = dateRange && dateRange.start ? new Date(dateRange.start) : null
-    const end = dateRange && dateRange.end ? new Date(dateRange.end) : null
-    if (end) end.setHours(23,59,59,999)
+// Compatibilidad: wrapper con la firma usada en varias partes del proyecto
+export function computeFinancials(sales = [], expenses = [], from = null, to = null){
+  const range = {
+    start: from ? (from instanceof Date ? from.toISOString() : String(from)) : null,
+    end: to ? (to instanceof Date ? to.toISOString() : String(to)) : null
+  }
+  return calculateFinancialData(range, Array.isArray(sales) ? sales : [], Array.isArray(expenses) ? expenses : [], [])
+}
 
-    // reutilizar calculateFinancialData para ventas/gastos básicos
-    const base = calculateFinancialData(dateRange, sales || [], expenses || [], purchases || [])
+// ===============================
+// 🔗 Calculadora integrada (estructura amigable para vistas de reportes completos)
+// ===============================
+export function calculateIntegratedFinancialData({ sales = [], expenses = [], purchases = [], fiados = [], products = [], clients = [], dateRange = {} } = {}){
+  // Reusar cálculo base
+  const base = calculateFinancialData(dateRange, Array.isArray(sales) ? sales : [], Array.isArray(expenses) ? expenses : [], Array.isArray(purchases) ? purchases : [])
 
-    // Ventas por producto
-    const byProduct = {}
-    (base.filteredSales || []).forEach(sale => {
-      const items = Array.isArray(sale.items) ? sale.items : []
-      items.forEach(it => {
-        const id = it.productId || it.id || String(it.sku || it.name || 'unknown')
-        const name = it.name || it.title || it.productName || id
-        const qty = _safeNumber(it.qty || it.quantity || 1)
-        const price = _safeNumber(it.price || it.unitPrice || it.amount || 0)
-        const cost = _safeNumber(it.cost || it.unitCost || 0)
-        if (!byProduct[id]) byProduct[id] = { id, name, qty:0, revenue:0, cost:0 }
-        byProduct[id].qty += qty
-        byProduct[id].revenue += price * qty
-        byProduct[id].cost += cost * qty
-      })
+  // Ventas por producto
+  const byProductMap = {}
+  ;(base.filteredSales || []).forEach(sale => {
+    (sale.items || []).forEach(it => {
+      const id = it.id || it.sku || it.productId || String(it.name || JSON.stringify(it))
+      const name = it.name || it.nombre || id
+      const qty = Number(it.qty || it.quantity || 0) || 0
+      const price = Number(it.price || it.unitPrice || it.valor || it.valorUnitario || it.total || 0) || 0
+      const cost = Number(it.cost || it.unitCost || 0) || 0
+      if (!byProductMap[id]) byProductMap[id] = { id, name, qty: 0, revenue: 0, cost: 0 }
+      byProductMap[id].qty += qty
+      byProductMap[id].revenue += qty * price
+      byProductMap[id].cost += qty * cost
     })
-    const productsArray = Object.values(byProduct).sort((a,b)=> b.revenue - a.revenue)
+  })
+  const byProduct = Object.keys(byProductMap).map(k => byProductMap[k]).sort((a,b)=>b.revenue - a.revenue)
 
-    // Inventario: merge with products list if available
-    const inventory = (products || []).map(p => ({
-      id: p.id || p._id || p.sku || p.code,
-      name: p.name || p.title || p.descripcion || '',
-      stock: _safeNumber(p.stock || p.qty || p.quantity || p.cantidad || 0),
-      cost: _safeNumber(p.cost || p.unitCost || 0)
-    }))
+  // Inventario: combinar productos con ventas realizadas
+  const prodMap = {}
+  ;(Array.isArray(products) ? products : []).forEach(p => {
+    const id = p.id || p.sku || String(p.name || JSON.stringify(p))
+    prodMap[id] = { id, name: p.nombre || p.name || id, stock: Number(p.stock || p.cantidad || 0) || 0, sold: 0 }
+  })
+  byProduct.forEach(p => {
+    if (!prodMap[p.id]) prodMap[p.id] = { id: p.id, name: p.name || p.id, stock: 0, sold: 0 }
+    prodMap[p.id].sold = p.qty || 0
+  })
+  const inventoryItems = Object.keys(prodMap).map(k => prodMap[k])
 
-    // agregar ventas a inventario (cantidad vendida)
-    const inventoryMap = {}
-    inventory.forEach(i => { inventoryMap[i.id] = { ...i, sold: 0 } })
-    productsArray.forEach(p => {
-      if (inventoryMap[p.id]) inventoryMap[p.id].sold = p.qty
-    })
+  // Clientes: métricas simples
+  const clientKeys = new Set()
+  ;(Array.isArray(sales) ? sales : []).forEach(s => {
+    const clientObj = s.client || s.customer || null
+    const key = clientObj && (clientObj.id || clientObj._id) ? String(clientObj.id || clientObj._id) : (s.clienteFiado || s.clientId || s.clientName || s.clienteNombre || JSON.stringify(clientObj || {}))
+    if (key) clientKeys.add(String(key))
+  })
 
-    // Clientes: nuevos vs recurrentes
-    const clientSales = {}
-    (base.filteredSales || []).forEach(sale => {
-      const cid = sale.clientId || sale.customerId || sale.client || 'guest_' + (sale.id||sale._id||Math.random())
-      clientSales[cid] = clientSales[cid] || { count:0, total:0 }
-      clientSales[cid].count += 1
-      clientSales[cid].total += Number(sale.total || sale.amount || 0) || 0
-    })
-    const clientEntries = Object.keys(clientSales).map(k=>({ id:k, count: clientSales[k].count, total: clientSales[k].total }))
-    const newClients = (clients || []).filter(c => { try{ const d = new Date(c.createdAt || c.created || c.regDate || null); if (!d || isNaN(d)) return false; if (!start || !end) return false; return d >= start && d <= end }catch(e){ return false } }).length
-    const recurringClients = clientEntries.filter(c=> c.count > 1).length
+  const clientsSummary = {
+    totalDistinct: clientKeys.size,
+    newClients: 0,
+    recurringClients: 0
+  }
 
-    // Fiados: totales, vencidos, pagos recibidos
-    let totalFiados = 0, overdue = 0, paymentsReceived = 0
-    ;(fiados || []).forEach(f => {
-      const amt = _safeNumber(f.amount || f.monto || f.value || f.total || 0)
-      const paid = !!f.paid
-      totalFiados += amt
-      if (!paid){
-        const due = f.dueDate || f.vencimiento || f.fechaVencimiento || null
-        if (due){
-          const dd = new Date(due)
-          if (!isNaN(dd) && end && dd < end) overdue += amt
-        }
-      } else {
-        // consider payments in range
-        const paidAt = f.paidAt || f.fechaPago || f.paymentDate || null
-        if (paidAt){ const pd = new Date(paidAt); if (!isNaN(pd) && (!start || pd >= start) && (!end || pd <= end)) paymentsReceived += amt }
-      }
-    })
+  // Fiados: totales simples
+  const fiadosList = Array.isArray(fiados) ? fiados : []
+  const totalFiados = fiadosList.reduce((s,f) => s + (Number(f.deuda || f.amount || f.monto || 0) || 0), 0)
+  const overdue = fiadosList.reduce((s,f) => {
+    try{ const due = f.dueDate || f.vencimiento || null; if (due && new Date(due) < new Date()) return s + (Number(f.deuda||f.amount||f.monto||0)||0) }catch(e){}
+    return s
+  }, 0)
 
-    // Compras/purchases: total
-    const purchasesList = Array.isArray(purchases) ? purchases.filter(p => {
-      try{ const d = new Date(p.date || p.fecha || p.createdAt || p.timestamp || null); if (isNaN(d)) return false; if (start && d < start) return false; if (end && d > end) return false; return true }catch(e){ return false }
-    }) : []
-    const purchasesTotal = purchasesList.reduce((s,p)=> s + _safeNumber(p.total || p.amount || p.monto || 0), 0)
-
-    // Flujo de caja simplificado
-    const cashFlow = {
-      periodSales: base.totalSales || 0,
-      periodExpenses: base.totalExpenses || 0,
-      purchasesTotal,
-      fiadosReceived: paymentsReceived,
-      netCash: (base.netProfit || 0) - purchasesTotal + paymentsReceived
-    }
-
-    return {
-      resumen: {
-        totalSales: base.totalSales || 0,
-        totalCosts: base.totalCosts || 0,
-        totalExpenses: base.totalExpenses || 0,
-        grossProfit: base.grossProfit || 0,
-        netProfit: base.netProfit || 0,
-        profitMargin: base.profitMargin || 0
-      },
-      ventas: {
-        byProduct: productsArray,
-        byDay: base.byDay || []
-      },
-      gastos: {
-        total: base.totalExpenses || 0,
-        list: base.filteredExpenses || []
-      },
-      inventario: {
-        items: Object.values(inventoryMap),
-        topSold: productsArray.slice(0,20)
-      },
-      clientes: {
-        totalDistinct: Object.keys(clientSales).length,
-        newClients,
-        recurringClients,
-        details: clientEntries
-      },
-      fiados: {
-        totalFiados,
-        overdue,
-        paymentsReceived
-      },
-      compras: {
-        list: purchasesList,
-        total: purchasesTotal
-      },
-      cashFlow
-    }
-  }catch(e){
-    console.error('calculateIntegratedFinancialData failed', e)
-    return { resumen: {}, ventas:{ byProduct:[], byDay:[] }, gastos:{ total:0, list:[] }, inventario:{items:[], topSold:[]}, clientes:{}, fiados:{}, compras:{}, cashFlow:{} }
+  return {
+    resumen: {
+      totalSales: base.totalSales || 0,
+      totalExpenses: base.totalExpenses || 0,
+      totalCosts: base.totalCosts || 0,
+      netProfit: base.netProfit || 0
+    },
+    ventas: { byProduct },
+    gastos: { list: base.filteredExpenses || [] },
+    clientes: clientsSummary,
+    inventario: { items: inventoryItems },
+    fiados: { totalFiados, overdue, list: fiadosList },
+    raw: base
   }
 }

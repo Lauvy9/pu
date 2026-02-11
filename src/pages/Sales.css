@@ -2,7 +2,7 @@
 :root{
   --card-bg: #fff;
   --text-color: #000;
-  --muted: #666;
+  --muted: #000000;
   --soft-border: rgba(0,0,0,0.08);
 }
 
@@ -38,9 +38,9 @@
 
 /* Row background states keep same semantic colors but ensure black text for contrast */
 .state-blue{ background: #2196F3 !important; color: #000 !important; }
-.state-red{ background: #F44336 !important; color: #000 !important; }
+.state-red{ background: #ed4f44 !important; color: #000 !important; }
 .state-yellow{ background: #FFEB3B !important; color: #000 !important; }
-.state-green{ background: #4CAF50 !important; color: #000 !important; }
+.state-green{ background: #5ce90a !important; color: #000 !important; }
 
 /* Card view for mobile */
 .sales-cards{ display:flex; flex-direction:column; gap:10px; }
@@ -56,3 +56,7 @@
 
 /* Ensure texts don't overflow */
 .truncate{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+/* Descripción secundaria para items (producto/servicio) */
+.item-desc{ color: #6c6c6c; font-size: 0.82rem; margin-left: 6px; margin-top: 2px; }
+.item-meta{ color: #6c6c6c; font-size: 0.82rem; margin-left: 6px; margin-top: 2px; font-weight:600 }

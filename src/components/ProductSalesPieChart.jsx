@@ -8,14 +8,24 @@ export default function ProductSalesPieChart({ salesData = [], maxSlices = 6, wi
     const products = {}
     safeSalesData.forEach(sale => {
       const items = Array.isArray(sale?.items) ? sale.items : []
-      items.forEach(it => {
-        const name = it?.name || it?.product || 'Desconocido'
-        const qty = Number(it?.qty || it?.quantity || 1)
-        const total = (Number(it?.price || it?.unitPrice || 0) || 0) * qty
+      if (items.length === 0) {
+        // Fallback: si la venta no tiene items, usar la venta completa como una entrada
+        const name = sale.title || sale.description || sale.clientName || (sale.id || sale._id) || 'Venta'
+        const qty = 1
+        const total = Number(sale.total || sale.amount || sale.monto || 0) || 0
         if (!products[name]) products[name] = { qty: 0, total: 0 }
         products[name].qty += qty
         products[name].total += total
-      })
+      } else {
+        items.forEach(it => {
+          const name = it?.name || it?.product || 'Desconocido'
+          const qty = Number(it?.qty || it?.quantity || 1)
+          const total = (Number(it?.price || it?.unitPrice || 0) || 0) * qty
+          if (!products[name]) products[name] = { qty: 0, total: 0 }
+          products[name].qty += qty
+          products[name].total += total
+        })
+      }
     })
 
     const entries = Object.entries(products).map(([name, v]) => ({ name, qty: v.qty, total: v.total }))
@@ -51,11 +61,16 @@ export default function ProductSalesPieChart({ salesData = [], maxSlices = 6, wi
 
   // Si no hay datos, mostrar mensaje
   if (!productStats || !Array.isArray(productStats.slices) || productStats.slices.length === 0) {
+    console.debug('ProductSalesPieChart: no slices', { safeSalesData, productStats })
     return (
-      <div className="chart-container" style={{ width: responsive ? '100%' : width, height, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div>
-          <h3 style={{ margin: 0 }}>🎯 Productos Más Vendidos</h3>
-          <p style={{ marginTop: 8 }}>No hay datos de ventas para mostrar</p>
+      <div className="chart-container" style={{ width: responsive ? '100%' : width, height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', background: '#f9f9f9', border: '1px solid #ddd', borderRadius: 8, padding: 20 }}>
+        <div style={{ textAlign: 'center' }}>
+          <h3 style={{ margin: '0 0 8px 0', fontSize: 14 }}> Productos Más Vendidos</h3>
+          <p style={{ margin: '8px 0', fontSize: 12, color: '#666' }}>No hay datos de ventas para mostrar en este rango</p>
+          <details style={{ marginTop: 12, textAlign: 'left', fontSize: 11 }}>
+            <summary style={{ cursor: 'pointer', color: '#0066cc' }}>Debug info</summary>
+            <pre style={{ maxWidth: 400, marginTop: 8, whiteSpace: 'pre-wrap', background: '#fff', padding: 8, border: '1px solid #ddd', borderRadius: 4, overflow: 'auto', maxHeight: 150 }}>{JSON.stringify({ salesCount: safeSalesData.length, slices: productStats?.slices?.length || 0 }, null, 2)}</pre>
+          </details>
         </div>
       </div>
     )
@@ -63,18 +78,37 @@ export default function ProductSalesPieChart({ salesData = [], maxSlices = 6, wi
 
   const { totalSum, slices: dataSlices } = productStats
 
+  // Fallback extra: si totalSum es 0 pero hay ventas, usar totals por venta
+  let finalSlices = dataSlices
+  let finalTotal = totalSum
+  if ((!finalTotal || finalTotal === 0) && safeSalesData.length > 0) {
+    const bySale = safeSalesData.map(s => ({
+      name: s.clientName || s.title || s.id || (s._id ? String(s._id) : 'Venta'),
+      qty: 1,
+      total: Number(s.total || s.amount || s.monto || 0) || 0
+    })).filter(x => x.total > 0)
+    const sum = bySale.reduce((a,b)=> a + b.total, 0)
+    if (bySale.length && sum > 0) {
+      finalTotal = sum
+      finalSlices = bySale.map((b, idx) => ({ ...b, perc: sum ? (b.total / sum) : 0, color: COLORS[idx % COLORS.length] }))
+    }
+  }
+
+  const totalValue = finalTotal
+  const dataToDraw = finalSlices
+
   const cx = (responsive ? w : width)/2
   const cy = height/2
   const r = Math.min(responsive ? w : width, height)/2 - 10
   // build arcs
   const circumference = 2 * Math.PI * r
   let acc = 0
-  const slices = dataSlices.map((s, idx)=>{
+  const slices = dataToDraw.map((s, idx)=>{
     const start = acc
-    const portion = s.perc
+    const portion = s.perc || (totalValue ? (s.total / totalValue) : 0)
     const length = portion * circumference
     acc += length
-    return { ...s, start, length, color: COLORS[idx % COLORS.length] }
+    return { ...s, start, length, color: s.color || COLORS[idx % COLORS.length], perc: portion }
   })
 
   function polarToCartesian(cx, cy, r, angle){
@@ -132,6 +166,10 @@ export default function ProductSalesPieChart({ salesData = [], maxSlices = 6, wi
       {tooltip.visible ? (
         <div style={{ position:'fixed', left: tooltip.x + 8, top: tooltip.y + 8, background:'#111', color:'#fff', padding:'6px 8px', borderRadius:6, fontSize:12, pointerEvents:'none', zIndex:9999 }}>{tooltip.text}</div>
       ) : null}
+      <div style={{ marginTop:8 }}>
+        <small className="small-muted">Debug: slices</small>
+        <pre style={{ maxHeight:120, overflow:'auto', background:'#fafafa', padding:8 }}>{JSON.stringify(productStats.slices, null, 2)}</pre>
+      </div>
     </div>
   )
 }

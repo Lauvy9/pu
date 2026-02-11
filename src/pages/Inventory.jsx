@@ -3,69 +3,124 @@ import { useStore } from '../context/StoreContext'
 import ProductForm from '../components/ProductForm'
 import ProductList from '../components/ProductList'
 
-export default function Inventory(){
-  const {products, actions} = useStore()
+export default function Inventory() {
+  const { products, actions } = useStore()
   const [query, setQuery] = useState('')
-  const [ofertas, setOfertas] = useState(()=>{
-    try{
+  const [ofertas, setOfertas] = useState(() => {
+    try {
       const data = localStorage.getItem('vid_ofertas')
       return data ? JSON.parse(data) : []
-    }catch(e){ return [] }
+    } catch (e) { return [] }
   })
-  const [editing, setEditing] = useState(null)
-  const [editData, setEditData] = useState({ name: '', caracteristica: '', stock: 0, price: 0, porcentajeGananciaMinorista: 60, porcentajeGananciaMayorista: 50 })
 
-  function handleAdd(p){
+  const [editing, setEditing] = useState(null)
+  const [editData, setEditData] = useState({
+    name: '',
+    caracteristica: '',
+    stock: 0,
+    cost: 0,
+    porcentajeGananciaMinorista: 60,
+    porcentajeGananciaMayorista: 50
+  })
+
+  // -------------------------
+  // AGREGAR PRODUCTO
+  // -------------------------
+  function handleAdd(p) {
     actions.addProduct(p)
   }
 
-  function handleEdit(p){
+  // -------------------------
+  // EDITAR PRODUCTO (ABRIR MODAL)
+  // -------------------------
+  function handleEdit(p) {
     setEditing(p)
     setEditData({
       name: p.name,
       caracteristica: p.caracteristica || '',
+      businessUnit: p.businessUnit || '',
       stock: p.stock,
-      price: p.cost || p.price,
-      porcentajeGananciaMinorista: p.porcentajeGananciaMinorista ?? p.pct_minor ?? 60,
-      porcentajeGananciaMayorista: p.porcentajeGananciaMayorista ?? p.pct_mayor ?? 50
+      cost: p.cost ?? 0,
+      porcentajeGananciaMinorista: p.porcentajeGananciaMinorista ?? 60,
+      porcentajeGananciaMayorista: p.porcentajeGananciaMayorista ?? 50
     })
   }
 
+  // -------------------------
+  // INPUT DEL FORM EDIT
+  // -------------------------
   function handleEditChange(e) {
     const { name, value } = e.target
     setEditData(prev => ({
       ...prev,
-      [name]: name === 'stock' || name === 'price' || name.startsWith('porcentaje') ? Number(value) : value
+      [name]:
+        name === 'stock' ||
+        name === 'cost' ||
+        name.startsWith('porcentaje')
+          ? Number(value)
+          : value
     }))
   }
 
+  // -------------------------
+  // GUARDAR EDICIÓN
+  // -------------------------
   function handleEditSubmit(e) {
     e.preventDefault()
+
+    const cost = editData.cost
+
+    const price_minor = Number(
+      (cost * (1 + editData.porcentajeGananciaMinorista / 100)).toFixed(2)
+    )
+    const price_mayor = Number(
+      (cost * (1 + editData.porcentajeGananciaMayorista / 100)).toFixed(2)
+    )
+
     actions.updateProduct(editing.id, {
-      ...editData,
-      cost: editData.price, // Asegura que el costo se actualiza
+      name: editData.name,
+      caracteristica: editData.caracteristica,
+      businessUnit: editData.businessUnit || undefined,
+      stock: editData.stock,
+      cost,
       porcentajeGananciaMinorista: editData.porcentajeGananciaMinorista,
-      porcentajeGananciaMayorista: editData.porcentajeGananciaMayorista
+      porcentajeGananciaMayorista: editData.porcentajeGananciaMayorista,
+      price_minor,
+      price_mayor
     })
+
     setEditing(null)
   }
 
-  function handleDelete(id){
-    if(window.confirm('Eliminar producto?')) actions.removeProduct(id)
+  // -------------------------
+  // ELIMINAR PRODUCTO
+  // -------------------------
+  function handleDelete(id) {
+    if (window.confirm('Eliminar producto?')) {
+      actions.removeProduct(id)
+    }
   }
 
-  function saveOfertas(next){
+  // -------------------------
+  // OFERTAS
+  // -------------------------
+  function saveOfertas(next) {
     setOfertas(next)
-    try{ localStorage.setItem('vid_ofertas', JSON.stringify(next)) }catch(e){}
+    try { localStorage.setItem('vid_ofertas', JSON.stringify(next)) } catch (e) { }
   }
 
-  function addOfferForProduct(prodId, ofertaPct){
-    const prod = products.find(p=>p.id === prodId)
-    if(!prod) return alert('Producto no encontrado')
+  function addOfferForProduct(prodId, ofertaPct) {
+    const prod = products.find(p => p.id === prodId)
+    if (!prod) return alert('Producto no encontrado')
+
     const precioBase = prod.price_minor ?? prod.price ?? prod.cost ?? 0
-    const precioOferta = Number((precioBase * (1 - (Number(ofertaPct) || 0)/100)).toFixed(2))
+    const precioOferta = Number(
+      (precioBase * (1 - (Number(ofertaPct) || 0) / 100)).toFixed(2)
+    )
+
     const now = new Date().toISOString()
     const existing = ofertas.find(o => o.id === prodId)
+
     const nuevo = {
       id: prodId,
       name: prod.name,
@@ -77,21 +132,25 @@ export default function Inventory(){
       activatedAt: now,
       removedAt: null
     }
+
     if (existing) {
-      // replace and set active
-      const next = ofertas.map(o => o.id === prodId ? { ...o, ...nuevo } : o)
+      const next = ofertas.map(o => (o.id === prodId ? { ...o, ...nuevo } : o))
       saveOfertas(next)
     } else {
-      saveOfertas([ ...ofertas, nuevo ])
+      saveOfertas([...ofertas, nuevo])
     }
+
     alert('Producto agregado/actualizado en ofertas')
   }
 
-  function removeOfferForProduct(prodId){
+  function removeOfferForProduct(prodId) {
     const idx = ofertas.findIndex(o => o.id === prodId)
     if (idx === -1) return alert('Producto no está en ofertas')
+
     const now = new Date().toISOString()
-    const next = ofertas.map(o => o.id === prodId ? { ...o, activo: false, removedAt: now } : o)
+    const next = ofertas.map(o =>
+      o.id === prodId ? { ...o, activo: false, removedAt: now } : o
+    )
     saveOfertas(next)
     alert('Producto marcado como no activo en ofertas')
   }
@@ -100,37 +159,89 @@ export default function Inventory(){
     setEditing(null)
   }
 
+
+  const productosFiltrados = products.filter(p =>
+  !query || (p.name || '').toLowerCase().includes(query.toLowerCase())
+)
+
+const productosVidrieria = productosFiltrados.filter(
+  p => p.businessUnit === 'vidrieria'
+)
+
+const productosMuebleria = productosFiltrados.filter(
+  p => p.businessUnit === 'muebleria'
+)
+
+  // -------------------------
+  // RENDER
+  // -------------------------
   return (
     <div className="grid">
       {import.meta.env.VITE_USE_FIRESTORE === 'true' && (
         <div style={{ gridColumn: '1 / -1', marginBottom: 8 }}>
-          <button className="btn" onClick={async ()=>{
-            const res = await actions.syncProductsToFirestore()
-            if (!res.ok) alert('Sync failed: '+(res.error||'unknown'))
-            else alert('Productos sincronizados')
-          }}>Sincronizar productos a Firestore</button>
+          <button
+            className="btn"
+            onClick={async () => {
+              const res = await actions.syncProductsToFirestore()
+              if (!res.ok) alert('Sync failed: ' + (res.error || 'unknown'))
+              else alert('Productos sincronizados')
+            }}
+          >
+            Sincronizar productos a Firestore
+          </button>
         </div>
       )}
+
       <div>
-          <div style={{ marginBottom: 8 }}>
-            <input className="input" placeholder="Buscar productos" value={query} onChange={e=>setQuery(e.target.value)} />
-          </div>
-          <ProductForm onAdd={handleAdd} />
-      </div>
-      <div>
-          <ProductList
-            products={products.filter(p => !query || (p.name||'').toLowerCase().includes(query.toLowerCase()))}
-            onEdit={handleEdit}
-            onDelete={handleDelete}
-            ofertas={ofertas}
-            onAddOffer={addOfferForProduct}
-            onRemoveOffer={removeOfferForProduct}
+        <div style={{ marginBottom: 8 }}>
+          <input
+            className="input"
+            placeholder="Buscar productos"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
           />
+        </div>
+        <ProductForm onAdd={handleAdd} />
       </div>
+
+      <div className="space-y-10">
+
+
+  {/* VIDRIERÍA */}
+  <div>
+    <h3 className="text-xl font-bold mb-2">Vidriería</h3>
+
+    <ProductList
+      products={productosVidrieria}
+      onEdit={handleEdit}
+      onDelete={handleDelete}
+      ofertas={ofertas}
+      onAddOffer={addOfferForProduct}
+      onRemoveOffer={removeOfferForProduct}
+    />
+  </div>
+
+  {/* MUEBLERÍA */}
+  <div>
+    <h3 className="text-xl font-bold mb-2">Mueblería</h3>
+
+    <ProductList
+      products={productosMuebleria}
+      onEdit={handleEdit}
+      onDelete={handleDelete}
+      ofertas={ofertas}
+      onAddOffer={addOfferForProduct}
+      onRemoveOffer={removeOfferForProduct}
+    />
+  </div>
+</div>
+
+
       {editing && (
         <div className="modal">
           <form onSubmit={handleEditSubmit} className="edit-form">
             <h3>Editar producto</h3>
+
             <label>
               Nombre:
               <input
@@ -140,6 +251,7 @@ export default function Inventory(){
                 required
               />
             </label>
+
             <label>
               Característica:
               <input
@@ -149,6 +261,7 @@ export default function Inventory(){
                 required
               />
             </label>
+
             <label>
               Stock:
               <input
@@ -160,18 +273,20 @@ export default function Inventory(){
                 min={0}
               />
             </label>
+
             <label>
-              Precio:
+              Costo:
               <input
-                name="price"
+                name="cost"
                 type="number"
-                value={editData.price}
+                value={editData.cost}
                 onChange={handleEditChange}
                 required
                 min={0}
                 step="0.01"
               />
             </label>
+
             <label>
               % Ganancia minorista:
               <input
@@ -183,6 +298,7 @@ export default function Inventory(){
                 step="0.1"
               />
             </label>
+
             <label>
               % Ganancia mayorista:
               <input
@@ -194,8 +310,20 @@ export default function Inventory(){
                 step="0.1"
               />
             </label>
+
+            <label>
+              Unidad de negocio:
+              <select name="businessUnit" value={editData.businessUnit || ''} onChange={handleEditChange} required>
+                <option value="">Seleccionar unidad</option>
+                <option value="muebleria">Mueblería</option>
+                <option value="vidrieria">Vidriería</option>
+              </select>
+            </label>
+
             <button type="submit">Guardar</button>
-            <button type="button" onClick={handleCancelEdit}>Cancelar</button>
+            <button type="button" onClick={handleCancelEdit}>
+              Cancelar
+            </button>
           </form>
         </div>
       )}

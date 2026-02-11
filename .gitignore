@@ -7,9 +7,16 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Dependencies
 node_modules
+
+# Build output
 dist
 dist-ssr
+build
+
+# Env files
+.env
 *.local
 
 # Editor directories and files
@@ -23,5 +30,5 @@ dist-ssr
 *.sln
 *.sw?
 
-# Ignore Firebase service account file (server)
+# Firebase (server)
 server/service-account.json

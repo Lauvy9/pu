@@ -1,0 +1,8 @@
+/* Global CSS variables for the app (theme variables used by LauraAssistant) */
+:root {
+  --laura-green: #00bfa6;
+  --laura-violet: #8a2be2;
+  --laura-pink: #ff6ec7;
+  --laura-bg: #ffffff;
+  --laura-muted: #6b7280;
+}

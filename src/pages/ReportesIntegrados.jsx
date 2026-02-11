@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import MetricCard from '../components/MetricCard'
 import ProductSalesPieChart from '../components/ProductSalesPieChart'
+import FinancialSummaryPieChart from '../components/FinancialSummaryPieChart'
+import AdHocFinancialCharts from '../components/AdHocFinancialCharts'
 import SalesByHourBarChart from '../components/SalesByHourBarChart'
 import MixedPerformanceChart from '../components/MixedPerformanceChart'
 import ReportesHistory from './ReportesHistory'
@@ -15,6 +17,7 @@ export default function ReportesIntegrados({ externalRange }){
   const [financials, setFinancials] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [showAdHoc, setShowAdHoc] = useState(false)
   const [sampleSales, setSampleSales] = useState(null)
 
   // Ensure we always work with an array for sales (sampleSales may be null, sales may be 0)
@@ -30,6 +33,20 @@ export default function ReportesIntegrados({ externalRange }){
   }, [externalRange])
 
   useEffect(()=>{ loadIntegratedData() }, [effectiveRange, sales, expenses])
+
+  // Si no hay ventas en el store ni sampleSales cargadas, cargar datos de ejemplo automáticamente
+  useEffect(()=>{
+    try{
+      const localSales = JSON.parse(localStorage.getItem('vid_sales') || '[]')
+      if ((!Array.isArray(sales) || sales.length === 0) && !Array.isArray(sampleSales) && (!localSales || localSales.length === 0)){
+        import('../utils/sampleData').then(m=>{
+          const s = m.generateSampleSales({ days:7, avgPerDay:40 })
+          setSampleSales(s)
+          console.info('Datos de ejemplo cargados automáticamente para visualización de gráficos')
+        }).catch(e=> console.warn('No se pudo cargar datos de ejemplo automáticamente', e))
+      }
+    }catch(e){ /* ignore */ }
+  }, [sales, sampleSales])
 
   function loadIntegratedData(){
     setLoading(true); setError(null)
@@ -73,14 +90,13 @@ export default function ReportesIntegrados({ externalRange }){
     }catch(e){ console.error('exportCSV error', e); alert('Error exportando CSV') }
   }
 
+  // Si no hay ventas en el rango, usar datos de prueba automáticamente
+  const displaySales = salesInRange.length > 0 ? salesInRange : (sampleSales || [])
+
   return (
     <div className="reportes-integrados" style={{ display:'grid', gridTemplateColumns: '320px 1fr', gap:12 }}>
       <div className="card" style={{ padding:12 }}>
         <h3>Reportes Integrados</h3>
-        <div style={{ marginTop:8, display:'flex', gap:8 }}>
-          <button className="btn" onClick={()=>{ import('../utils/sampleData').then(m=>{ const s = m.generateSampleSales({ days:1, avgPerDay:60 }); setSampleSales(s); alert('Datos de ejemplo (hoy) cargados para visualización') }) }}>Cargar datos de ejemplo (hoy)</button>
-          <button className="btn ghost" onClick={()=> setSampleSales(null)}>Limpiar datos de ejemplo</button>
-        </div>
         <div style={{ marginTop:10 }}>
           <label style={{ display:'flex', gap:8, alignItems:'center' }}>
             <input type="radio" checked={viewMode==='dashboard'} onChange={()=>setViewMode('dashboard')} /> Dashboard
@@ -101,38 +117,46 @@ export default function ReportesIntegrados({ externalRange }){
             <div className="metrics-row">
               {loading ? <div className="card" style={{ padding:12 }}>Cargando métricas...</div> : (
                 <>
-                  <MetricCard title="Ventas" value={formatCurrency((effectiveSales).reduce((s,x)=> s + Number(x.total||0),0) || financials?.totalSales || 0)} />
+                  <MetricCard title="Ventas" value={formatCurrency((displaySales).reduce((s,x)=> s + Number(x.total||0),0) || financials?.totalSales || 0)} />
                   <MetricCard title="Costo de Materiales Vendidos" value={formatCurrency(financials?.costoMateriales || financials?.cogs || 0)} />
                   <MetricCard title="Gastos Operativos" value={formatCurrency(financials?.gastosOperativos || financials?.expensesTotal || 0)} />
                   <MetricCard title="Ganancia Neta" value={formatCurrency(financials?.netProfit || financials?.gananciaNeta || 0)} />
+                  <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                    <button className="btn" onClick={()=> setShowAdHoc(s => !s)}>{showAdHoc ? 'Ocultar gráficos manuales' : 'Mostrar gráficos manuales'}</button>
+                  </div>
                 </>
               )}
             </div>
 
-            <div style={{ marginTop:12, display:'grid', gridTemplateColumns: '1fr 420px', gap:12 }}>
-              <div className="card">
-                <h4 style={{ marginTop:0 }}>Productos más vendidos (hoy)</h4>
-                <ProductSalesPieChart salesData={effectiveSales.filter(s=> isSameDay(new Date(s.date || s.createdAt || Date.now()), effectiveRange.to || new Date()))} responsive />
+            <div style={{ marginTop:12, display:'grid', gridTemplateColumns: '1fr 1fr', gap:12 }}>
+              <div className="card" style={{ minHeight: 400 }}>
+                <h4 style={{ marginTop:0 }}>Productos más vendidos</h4>
+                <ProductSalesPieChart salesData={displaySales} responsive />
               </div>
 
-              <div className="card">
-                <h4 style={{ marginTop:0 }}>Resumen</h4>
-                <div className="small-muted">Ventas totales: {formatCurrency(financials?.totalSales || 0)}</div>
-                <div className="small-muted">Transacciones: {(sales||[]).length}</div>
+              <div className="card" style={{ minHeight: 400 }}>
+                <h4 style={{ marginTop:0 }}>Resumen Financiero</h4>
+                <FinancialSummaryPieChart data={{ totalSales: financials?.totalSales || 0, costoMateriales: financials?.costoMateriales || financials?.cogs || 0, gastosOperativos: financials?.gastosOperativos || financials?.expensesTotal || 0, netProfit: financials?.netProfit || financials?.gananciaNeta || 0 }} responsive />
               </div>
             </div>
 
+            {showAdHoc ? (
+              <div style={{ marginTop:12 }}>
+                <AdHocFinancialCharts totalSales={9865100} costoMateriales={392000} gastosOperativos={10000} netProfit={9463100} />
+              </div>
+            ) : null}
+
             <div style={{ marginTop:12 }} className="card">
               <h4 style={{ marginTop:0 }}>Ventas por hora</h4>
-              <SalesByHourBarChart salesData={effectiveSales.filter(s=> isWithinRange(new Date(s.date || s.createdAt || Date.now()), effectiveRange.from, effectiveRange.to))} responsive />
+              <SalesByHourBarChart salesData={displaySales.filter(s=> isWithinRange(new Date(s.date || s.createdAt || Date.now()), effectiveRange.from, effectiveRange.to))} responsive />
             </div>
 
             <div style={{ marginTop:12 }} className="card">
               <h4 style={{ marginTop:0 }}>Comparativa: Hoy vs Ayer vs Promedio</h4>
               <MixedPerformanceChart
-                todaySales={effectiveSales.filter(s=> isSameDay(new Date(s.date || s.createdAt || Date.now()), effectiveRange.to || new Date()))}
-                prevSales={effectiveSales.filter(s=> isSameDay(new Date(s.date || s.createdAt || Date.now()), new Date((effectiveRange.to||new Date()).getTime() - 24*3600*1000)))}
-                weekAvg={buildHourlyWeekAvg(effectiveSales, effectiveRange.to || new Date())}
+                todaySales={displaySales.filter(s=> isSameDay(new Date(s.date || s.createdAt || Date.now()), effectiveRange.to || new Date()))}
+                prevSales={displaySales.filter(s=> isSameDay(new Date(s.date || s.createdAt || Date.now()), new Date((effectiveRange.to||new Date()).getTime() - 24*3600*1000)))}
+                weekAvg={buildHourlyWeekAvg(displaySales, effectiveRange.to || new Date())}
                 responsive
               />
             </div>

@@ -85,7 +85,7 @@ export default function Cobranza(){
                 <td>{new Date(r.dueDate).toLocaleDateString()}</td>
                 <td>{r.daysLate}</td>
                 <td>
-                  <button className="btn" onClick={()=> setOpenPayment({ clientId: r.clienteId, entryId: r.entryId })}>💸 Registrar pago</button>
+                  <button className="btn" onClick={()=> setOpenPayment({ clientId: r.clienteId, entryId: r.entryId })}>Registrar pago</button>
                 </td>
               </tr>
             ))}

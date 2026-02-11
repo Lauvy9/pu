@@ -9,6 +9,7 @@ export default function ProductList({products, onEdit, onDelete, ofertas = [], o
           <tr>
             <th>Nombre</th>
             <th>Característica</th>
+            <th>Unidad</th>
             <th>Costo</th>
             <th>% Mayorista</th>
             <th>Mayorista</th>
@@ -38,6 +39,7 @@ function ProductRow({ p, onEdit, onDelete, ofertas, onAddOffer, onRemoveOffer })
     <tr>
       <td>{p.name}</td>
       <td>{p.caracteristica}</td>
+      <td>{((p.businessUnit === 'muebleria' || p.businessUnit === 'mobileria') && 'Mueblería') || (p.businessUnit === 'vidrieria' && 'Vidriería') || 'No especificado'}</td>
       <td>${(p.cost ?? 0).toFixed(2)}</td>
       <td>{p.porcentajeGananciaMayorista ?? p.pct_mayor ?? 50}%</td>
       <td>${(p.price_mayor ?? 0).toFixed(2)}</td>

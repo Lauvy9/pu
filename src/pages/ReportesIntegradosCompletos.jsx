@@ -1,7 +1,6 @@
 import React, { useMemo, useState } from 'react'
 import { useStore } from '../context/StoreContext'
 import { calculateIntegratedFinancialData } from '../utils/financeHelpers'
-import exportToPDF from '../utils/exportPdf'
 import { formatCurrency } from '../utils/helpers'
 
 function FiltrosFecha({ dateRange, onDateChange }){
@@ -134,24 +133,14 @@ export default function ReportesIntegradosCompletos(){
 
   const financialData = useMemo(()=> calculateIntegratedFinancialData({ sales, expenses, purchases, fiados, products, clients, dateRange }), [sales, expenses, purchases, fiados, products, clients, dateRange])
 
-  const [exporting, setExporting] = useState(false)
-
-  const handleExport = async () => {
-    setExporting(true)
-    try{
-      await exportToPDF(financialData, dateRange, { includeImage: false })
-    }catch(e){ console.error('Error exportando reporte completo', e); alert('Error al exportar PDF: '+ (e && e.message ? e.message : String(e))) }
-    finally{ setExporting(false) }
-  }
+  
 
   return (
     <div style={{ maxWidth:1200, margin:'16px auto' }}>
       <header style={{ marginBottom:12 }}>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
           <h2 style={{ margin:0 }}>Reportes Financieros Integrados</h2>
-          <div>
-            <button className="btn" onClick={handleExport} disabled={exporting}>{exporting ? 'Generando PDF...' : 'Exportar Reporte Completo PDF'}</button>
-          </div>
+          <div />
         </div>
         <nav style={{ marginTop:8, display:'flex', gap:8 }}>
           <button className={`nav-item ${activeSection==='resumen' ? 'active' : ''}`} onClick={()=>setActiveSection('resumen')}>Resumen Ejecutivo</button>
