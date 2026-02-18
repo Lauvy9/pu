@@ -42,10 +42,10 @@ export function StoreProvider({ children }) {
         const addedQty = Number(product.stock || 0);
         const newCost = product.cost != null ? Number(product.cost) : exists.cost || 0;
         setProducts(prev => prev.map(p => p.id === exists.id ? { ...p, stock: Number(p.stock || 0) + addedQty, cost: newCost } : p));
-        // registrar transacción de reposicion
+        // Registrar transacción de compra de mercadería (NO es gasto operativo)
         const tx = {
           id: 'tx_' + Date.now().toString(),
-          tipo: 'reposicion',
+          tipo: 'compra_mercaderia',
           fecha: new Date().toISOString(),
           productoId: exists.id,
           nombreProducto: product.name || exists.name || '',
@@ -54,11 +54,8 @@ export function StoreProvider({ children }) {
           total: Number(addedQty) * Number(newCost || 0),
           businessUnit: (product.businessUnit || exists.businessUnit) || undefined,
         };
-        // push transaction and register expense
+        // Registrar transacción en historial (NO como gasto operativo)
         setTransactions(prev => [...prev, tx]);
-        // also add as expense to keep finance logic
-        const exp = { id: 'exp_' + Date.now().toString(), date: tx.fecha, description: `Reposición ${tx.nombreProducto}`, amount: tx.total, category: 'materiales', businessUnit: tx.businessUnit };
-        setExpenses(prev => [...prev, exp]);
         return exists;
       }
 
@@ -69,12 +66,12 @@ export function StoreProvider({ children }) {
       };
       setProducts(prev => [...prev, newProduct]);
 
-      // Registrar transacción tipo 'compra' para el stock inicial (si aplica)
+      // Registrar transacción tipo 'compra_mercaderia' para el stock inicial (NO es gasto operativo)
       const initialQty = Number(product.stock || 0);
       if (initialQty > 0) {
         const tx = {
           id: 'tx_' + Date.now().toString(),
-          tipo: 'compra',
+          tipo: 'compra_mercaderia',
           fecha: new Date().toISOString(),
           productoId: newProduct.id,
           nombreProducto: newProduct.name || '',
@@ -84,8 +81,6 @@ export function StoreProvider({ children }) {
           businessUnit: newProduct.businessUnit || undefined,
         };
         setTransactions(prev => [...prev, tx]);
-        const exp = { id: 'exp_' + Date.now().toString(), date: tx.fecha, description: `Compra ${tx.nombreProducto}`, amount: tx.total, category: 'materiales', businessUnit: tx.businessUnit };
-        setExpenses(prev => [...prev, exp]);
       }
       return newProduct;
     },
@@ -151,7 +146,7 @@ export function StoreProvider({ children }) {
             const costoUnit = typeof updates.cost !== 'undefined' ? Number(updates.cost) : Number(existing.cost || 0);
             const tx = {
               id: 'tx_' + Date.now().toString(),
-              tipo: 'reposicion',
+              tipo: 'compra_mercaderia',
               fecha: new Date().toISOString(),
               productoId: existing.id,
               nombreProducto: existing.name || '',
@@ -161,8 +156,6 @@ export function StoreProvider({ children }) {
               businessUnit: (updates && updates.businessUnit) ? updates.businessUnit : (existing.businessUnit || undefined),
             };
             setTransactions(prev => [...prev, tx]);
-            const exp = { id: 'exp_' + Date.now().toString(), date: tx.fecha, description: `Reposición ${tx.nombreProducto}`, amount: tx.total, category: 'materiales', businessUnit: tx.businessUnit };
-            setExpenses(prev => [...prev, exp]);
           }
         }
       } catch (e) { console.warn('updateProduct tx hook failed', e) }
@@ -270,7 +263,9 @@ export function StoreProvider({ children }) {
               pagado: !!newSale.pagado,
               entregado: !!newSale.entregado,
               deudaActual: remainingDebt,
-                 businessUnit: (!isService ? ((it.productSnapshot && it.productSnapshot.businessUnit) || (products && products.find ? (products.find(p => String(p.id) === String(it.id))?.businessUnit) : undefined) || newSale.businessUnit || 'sin_especificar') : (newSale.businessUnit || 'sin_especificar'))
+              businessUnit: (!isService ? ((it.productSnapshot && it.productSnapshot.businessUnit) || (products && products.find ? (products.find(p => String(p.id) === String(it.id))?.businessUnit) : undefined) || newSale.businessUnit || 'sin_especificar') : (newSale.businessUnit || 'sin_especificar')),
+              // Incluir productSnapshot para CMV: contiene cost, stock, businessUnit del producto
+              productSnapshot: it.productSnapshot || null
             };
             // incluir descripción si el item la trae (útil para servicios)
             if (it.descripcion || it.description) txItem.descripcion = it.descripcion || it.description;
@@ -372,7 +367,9 @@ export function StoreProvider({ children }) {
               pagado: !!newSale.pagado,
               entregado: !!newSale.entregado,
               deudaActual: remainingDebt,
-              businessUnit: (!isService ? ((it && it.productSnapshot && it.productSnapshot.businessUnit) || (products && products.find ? (products.find(p => String(p.id) === String(it.id))?.businessUnit) : undefined) || newSale.businessUnit || 'sin_especificar') : (newSale.businessUnit || 'sin_especificar'))
+              businessUnit: (!isService ? ((it && it.productSnapshot && it.productSnapshot.businessUnit) || (products && products.find ? (products.find(p => String(p.id) === String(it.id))?.businessUnit) : undefined) || newSale.businessUnit || 'sin_especificar') : (newSale.businessUnit || 'sin_especificar')),
+              // Incluir productSnapshot para CMV: contiene cost, stock, businessUnit del producto
+              productSnapshot: it.productSnapshot || null
             };
             // incluir descripción si el item la trae (útil para servicios)
             if (it.descripcion || it.description) txItem.descripcion = it.descripcion || it.description;
@@ -744,6 +741,24 @@ export function StoreProvider({ children }) {
         customer: pres.clienteData || pres.customer || null
       };
 
+      // Enriquecer items con productSnapshot para CMV
+      try {
+        sale.items = (sale.items || []).map(it => {
+          const prod = products ? products.find(p => String(p.id) === String(it.id)) : null;
+          const snapshot = prod ? {
+            id: prod.id,
+            name: prod.name || prod.title || prod.descripcion || '',
+            descripcion: prod.descripcion || prod.description || '',
+            medidas: prod.medidas || prod.measures || null,
+            stock: Number(prod.stock || 0),
+            cost: Number(prod.cost || prod.unitCost || 0),
+            price: Number(it.price || prod.price || prod.precio || 0),
+            businessUnit: prod.businessUnit || prod.unit || 'sin_especificar'
+          } : null;
+          return { ...it, productSnapshot: snapshot };
+        });
+      } catch (e) { console.warn('convertPresupuestoToSale: failed to enrich items', e) }
+
       // Descontar stock por cada item (si corresponde)
       if (sale.items && Array.isArray(sale.items)) {
         setProducts(prev => {
@@ -788,6 +803,9 @@ export function StoreProvider({ children }) {
               pagado: !!sale.pagado,
               entregado: !!sale.entregado,
               deudaActual: remainingDebt,
+              businessUnit: (!isService ? ((it.productSnapshot && it.productSnapshot.businessUnit) || (products && products.find ? (products.find(p => String(p.id) === String(it.id))?.businessUnit) : undefined) || 'sin_especificar') : 'sin_especificar'),
+              // Incluir productSnapshot para CMV: contiene cost, stock, businessUnit del producto
+              productSnapshot: it.productSnapshot || null
             };
             if (it.descripcion || it.description) txItem.descripcion = it.descripcion || it.description;
             setTransactions(prev => [...prev, txItem]);

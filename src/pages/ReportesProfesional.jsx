@@ -102,7 +102,7 @@ function BusinessUnitSection({ title, unit, transactions, products, dateRange })
       </h2>
 
       {/* KPIs por unidad */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 20 }}>
+      <div className="grid-unit-kpis" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 20 }}>
         <div className="card" style={{ textAlign: 'center', padding: 14 }}>
           <div className="metric-title">Ventas</div>
           <div className="metric-value" style={{ color: '#2e7d32' }}>
@@ -124,7 +124,7 @@ function BusinessUnitSection({ title, unit, transactions, products, dateRange })
       </div>
 
       {/* Gráficos por unidad */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
+      <div className="grid-unit-charts" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
         {/* Ventas vs Gastos */}
         <div className="card" style={{ padding: 14 }}>
           <h3 style={{ margin: '0 0 12px 0', fontSize: 14 }}>Ventas vs Gastos</h3>

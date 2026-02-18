@@ -9,6 +9,7 @@ export default function FormGastoOperativo() {
     concepto: '',
     pagadoA: '',
     businessUnit: 'compartido',
+    categoria: 'otros',
     monto: '',
     observacion: '',
   })
@@ -44,6 +45,7 @@ export default function FormGastoOperativo() {
       tipo: 'gasto',
       fecha: formData.fecha + 'T00:00:00.000Z',
       monto: monto,
+      categoria: formData.categoria || 'otros',
       businessUnit: formData.businessUnit,
       concepto: formData.concepto.trim(),
       pagadoA: formData.pagadoA.trim(),
@@ -61,6 +63,7 @@ export default function FormGastoOperativo() {
             concepto: '',
             pagadoA: '',
             businessUnit: 'compartido',
+            categoria: 'otros',
             monto: '',
             observacion: '',
           })
@@ -95,6 +98,32 @@ export default function FormGastoOperativo() {
               fontFamily: 'inherit',
             }}
           />
+        </div>
+
+        <div>
+          <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
+            Categoría
+          </label>
+          <select
+            value={formData.categoria}
+            onChange={(e) => handleChange('categoria', e.target.value)}
+            style={{
+              width: '100%',
+              padding: '8px 12px',
+              borderRadius: 4,
+              border: '1px solid #ccc',
+              fontFamily: 'inherit',
+              cursor: 'pointer',
+            }}
+          >
+            <option value="otros">Otros</option>
+            <option value="personal">Personal (sueldos)</option>
+            <option value="servicios">Servicios (luz, agua, etc.)</option>
+            <option value="materiales">Materiales</option>
+            <option value="transporte">Transporte</option>
+            <option value="impuestos">Impuestos</option>
+            <option value="mantenimiento">Mantenimiento</option>
+          </select>
         </div>
 
         <div>
@@ -223,6 +252,7 @@ export default function FormGastoOperativo() {
               concepto: '',
               pagadoA: '',
               businessUnit: 'compartido',
+              categoria: 'otros',
               monto: '',
               observacion: '',
             })

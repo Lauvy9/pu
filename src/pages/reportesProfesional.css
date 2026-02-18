@@ -22,26 +22,26 @@
   border-bottom:1px solid var(--border);
   padding:18px 20px;
 }
-.header-contenido{ display:flex; align-items:center; justify-content:space-between; gap:16px; max-width:1200px; margin:0 auto }
+.header-contenido{ display:flex; align-items:center; justify-content:space-between; gap:16px; max-width:1200px; margin:0 auto; flex-wrap: wrap; }
 .branding .titulo-principal{ margin:0; font-size:20px; font-weight:700; color:var(--accent) }
 .branding .subtitulo{ margin:2px 0 0 0; color:var(--muted); font-size:13px }
 .acciones-superiores .btn-pdf{ background:#0b5fff; color:#fff; border:none; padding:10px 16px; border-radius:6px; cursor:pointer }
 .acciones-superiores .btn-pdf[disabled]{ opacity:0.6; cursor:default }
 
-.navegacion-profesional{ display:flex; gap:8px; margin-top:12px; padding-left:2px }
-.navegacion-profesional .nav-item{ background:transparent; border:none; padding:10px 12px; font-weight:600; color:var(--muted); cursor:pointer }
+.navegacion-profesional{ display:flex; gap:8px; margin-top:12px; padding-left:2px; flex-wrap: wrap; }
+.navegacion-profesional .nav-item{ background:transparent; border:none; padding:10px 12px; font-weight:600; color:var(--muted); cursor:pointer; font-size: 14px; }
 .navegacion-profesional .nav-item.active{ color:var(--accent); border-bottom:2px solid #0b5fff }
 
-.layout-corporativo{ max-width:1200px; margin:20px auto; display:grid; grid-template-columns: 320px 1fr; gap:20px; padding:0 20px }
+.layout-corporativo{ max-width:1200px; margin:20px auto; display:grid; grid-template-columns: 1fr; gap:20px; padding:0 20px; width: 100%; box-sizing: border-box; }
 .panel-control{ }
 .card{ background:var(--card); border:1px solid var(--border); padding:14px; border-radius:var(--radius); box-shadow: 0 1px 2px rgba(16,24,40,0.03) }
 
 .seccion-titulo{ margin:0 0 10px 0; font-size:14px; color:var(--accent) }
 .controles-fecha{ display:flex; gap:10px; flex-direction:column }
 .campo-fecha .etiqueta{ display:block; font-size:12px; color:var(--muted); margin-bottom:6px }
-.input-fecha{ width:100%; padding:8px; border:1px solid var(--border); border-radius:6px }
+.input-fecha{ width:100%; padding:8px; border:1px solid var(--border); border-radius:6px; box-sizing: border-box; }
 .filtros-rapidos{ margin-top:10px; display:flex; gap:8px; flex-wrap:wrap }
-.filtro-rapido{ padding:8px 10px; background:transparent; border:1px solid var(--border); border-radius:6px; cursor:pointer; color:var(--muted) }
+.filtro-rapido{ padding:8px 10px; background:transparent; border:1px solid var(--border); border-radius:6px; cursor:pointer; color:var(--muted); font-size: 13px; white-space: nowrap; }
 
 .botones-accion{ display:flex; flex-direction:column; gap:8px }
 .btn{ padding:8px 10px; border-radius:6px; background:transparent; border:1px solid var(--border); cursor:pointer }
@@ -51,18 +51,156 @@
 .contenido-principal{ }
 .panel-dashboard{ display:flex; flex-direction:column; gap:12px }
 .grid-metrics{ display:grid; grid-template-columns: repeat(4,1fr); gap:12px }
+.grid-unit-kpis { display:grid; grid-template-columns: repeat(3,1fr); gap:12px; }
+.grid-unit-charts { display:grid; grid-template-columns: repeat(2,1fr); gap:12px; }
 .metric{ padding:14px }
 .metric-title{ font-size:12px; color:var(--muted); margin-bottom:8px }
-.metric-value{ font-size:18px; font-weight:700; color:var(--accent) }
+.metric-value{ font-size:18px; font-weight:700; color:var(--accent); word-break: break-word; }
 
 .panel-table{ margin-top:8px }
 .panel-title{ margin:0 0 8px 0; font-size:14px }
 .muted{ color:var(--muted) }
 .table-scroll{ max-height:260px; overflow:auto }
-.table{ width:100%; border-collapse:collapse; font-size:13px }
-.table th, .table td{ text-align:left; padding:8px 6px; border-bottom:1px solid #f1f3f6 }
+.table{ width:100%; border-collapse:collapse; font-size:13px; }
+.table th, .table td{ text-align:left; padding:8px 6px; border-bottom:1px solid #f1f3f6; word-break: break-word; }
 
+/* ===== MEDIA QUERIES RESPONSIVE ===== */
+
+/* TABLET: 768px - 1024px */
+@media (max-width:1024px){
+  .layout-corporativo{ gap: 16px; }
+  .grid-metrics{ grid-template-columns: repeat(2,1fr) }
+}
+
+/* TABLET/SMALL DESKTOP: 769px - 900px */
 @media (max-width:900px){
   .layout-corporativo{ grid-template-columns: 1fr; padding:0 12px }
   .grid-metrics{ grid-template-columns: repeat(2,1fr) }
+  .grid-unit-kpis { grid-template-columns: repeat(3,1fr); }
+  .grid-unit-charts { grid-template-columns: repeat(2,1fr); }
+  .header-contenido{ flex-direction: column; align-items: flex-start; }
+  .branding { width: 100%; }
+  .acciones-superiores { width: 100%; }
 }
+
+/* MOBILE: 640px - 768px */
+@media (max-width:768px){
+  .layout-corporativo{ padding: 0 12px; margin: 12px auto; }
+  .grid-metrics{ grid-template-columns: repeat(2,1fr); gap: 8px; }
+  .grid-unit-kpis { grid-template-columns: 1fr; gap: 8px; }
+  .grid-unit-charts { grid-template-columns: 1fr; gap: 8px; }
+  .metric { padding: 12px; }
+  .metric-value { font-size: 16px; }
+  .metric-title { font-size: 11px; }
+  
+  .header-corporativo { padding: 12px 12px; }
+  .header-contenido { gap: 12px; }
+  .branding .titulo-principal { font-size: 18px; }
+  
+  .navegacion-profesional { gap: 4px; margin-top: 8px; }
+  .navegacion-profesional .nav-item { padding: 8px 10px; font-size: 12px; }
+  
+  .input-fecha { font-size: 14px; }
+  .filtro-rapido { padding: 6px 8px; font-size: 12px; }
+  
+  .card { padding: 12px; }
+  .table { font-size: 12px; }
+  .table th, .table td { padding: 6px 4px; }
+  
+  /* Gráficos en mobile */
+  div[style*="gridTemplateColumns: '1fr 1fr'"] {
+    grid-template-columns: 1fr !important;
+  }
+  
+  /* Tablas con scroll horizontal en mobile */
+  .table-scroll { max-height: auto; overflow-x: auto; }
+  .table { min-width: 100%; }
+}
+
+/* SMALL MOBILE: < 640px */
+@media (max-width:640px){
+  .layout-corporativo { padding: 0 8px; }
+  .grid-metrics { grid-template-columns: 1fr; gap: 8px; }
+  .grid-unit-kpis { grid-template-columns: 1fr; gap: 8px; }
+  .grid-unit-charts { grid-template-columns: 1fr; gap: 8px; }
+  
+  .metric { padding: 10px; }
+  .metric-value { font-size: 14px; }
+  .metric-title { font-size: 10px; }
+  
+  .header-corporativo { padding: 10px 8px; }
+  .branding .titulo-principal { font-size: 16px; }
+  .branding .subtitulo { font-size: 11px; }
+  
+  .navegacion-profesional { gap: 2px; margin-top: 6px; }
+  .navegacion-profesional .nav-item { padding: 6px 8px; font-size: 11px; }
+  
+  .controles-fecha { gap: 8px; }
+  .input-fecha { font-size: 14px; padding: 6px; }
+  .filtro-rapido { padding: 5px 6px; font-size: 11px; }
+  
+  .card { padding: 10px; }
+  .table { font-size: 11px; }
+  .table th, .table td { padding: 4px 2px; }
+  
+  h3 { font-size: 13px; margin: 0 0 10px 0; }
+  h2 { font-size: 16px; margin: 12px 0 10px 0; }
+  
+  .panel-table { margin-top: 6px; }
+  
+  /* Forzar columna única en grids de gráficos */
+  div[style*="gridTemplateColumns: '1fr 1fr'"] {
+    grid-template-columns: 1fr !important;
+  }
+  
+  div[style*="gridTemplateColumns: '1fr 1fr 1fr'"] {
+    grid-template-columns: 1fr !important;
+  }
+  
+  /* Responsive container gráficos */
+  .recharts-responsive-container {
+    width: 100% !important;
+  }
+}
+
+/* EXTRA SMALL: < 480px */
+@media (max-width:480px){
+  .reportes-profesional { font-size: 13px; }
+  
+  .layout-corporativo { padding: 0 6px; margin: 8px auto; gap: 12px; }
+  .grid-metrics { grid-template-columns: 1fr; gap: 6px; }
+  
+  .metric { padding: 8px; }
+  .metric-value { font-size: 13px; }
+  .metric-title { font-size: 9px; }
+  
+  .header-corporativo { padding: 8px 6px; }
+  .header-contenido { gap: 8px; }
+  .branding .titulo-principal { font-size: 15px; }
+  .branding .subtitulo { font-size: 10px; display: none; }
+  
+  .acciones-superiores .btn-pdf { padding: 8px 12px; font-size: 12px; }
+  
+  .navegacion-profesional { gap: 2px; }
+  .navegacion-profesional .nav-item { padding: 5px 6px; font-size: 10px; }
+  
+  .input-fecha { font-size: 13px; padding: 5px; }
+  .filtro-rapido { padding: 4px 5px; font-size: 10px; }
+  
+  .card { padding: 8px; }
+  .table { font-size: 10px; }
+  .table th, .table td { padding: 3px 2px; }
+  
+  h3 { font-size: 12px; margin: 0 0 8px 0; }
+  h2 { font-size: 14px; margin: 10px 0 8px 0; }
+  
+  /* Forzar layouts verticales */
+  div[style*="gridTemplateColumns"] {
+    grid-template-columns: 1fr !important;
+  }
+  
+  /* Ocultar algunas secciones si es necesario */
+  
+  .table-scroll { overflow-x: auto; max-height: auto; }
+}
+

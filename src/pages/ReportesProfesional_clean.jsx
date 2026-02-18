@@ -396,174 +396,178 @@ export default function ReportesProfesional(){
           {/* 2️⃣ KPIs */}
           <KPISection totalSales={totalSales} totalExpenses={totalExpenses} netProfit={netProfit} pendingDebt={pendingDebt} />
 
-          {/* 3️⃣ GRÁFICOS ANALÍTICOS */}
-          <section className="card" style={{ marginTop: 20 }}>
-            <h3 className="panel-title">Gráficos Analíticos</h3>
+          {false && (
+            <>
+              {/* 3️⃣ GRÁFICOS ANALÍTICOS - DESACTIVADO TEMPORALMENTE */}
+              <section className="card" style={{ marginTop: 20 }}>
+                <h3 className="panel-title">Gráficos Analíticos</h3>
 
-            {/* GRÁFICO 1: Ventas vs Gastos */}
-            <div style={{ marginBottom: 24 }}>
-              <h4>Ventas vs Gastos</h4>
-              <ResponsiveContainer width="100%" height={250}>
-                <BarChart data={salesVsExpenses} margin={{ top: 8, right: 16, left: 0, bottom: 20 }}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="name" />
-                  <YAxis />
-                  <Tooltip formatter={(value) => formatCurrency(value)} />
-                  <Bar dataKey="value" fill="#1976d2">
-                    {salesVsExpenses.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.fill} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+                {/* GRÁFICO 1: Ventas vs Gastos */}
+                <div style={{ marginBottom: 24 }}>
+                  <h4>Ventas vs Gastos</h4>
+                  <ResponsiveContainer width="100%" height={250}>
+                    <BarChart data={salesVsExpenses} margin={{ top: 8, right: 16, left: 0, bottom: 20 }}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="name" />
+                      <YAxis />
+                      <Tooltip formatter={(value) => formatCurrency(value)} />
+                      <Bar dataKey="value" fill="#1976d2">
+                        {salesVsExpenses.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.fill} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
 
-            {/* GRÁFICO 2: Ganancia por Negocio */}
-            <div style={{ marginBottom: 24 }}>
-              <h4>Ganancia por Unidad de Negocio</h4>
-              {profitByUnit.length > 0 ? (
-                <ResponsiveContainer width="100%" height={250}>
-                  <BarChart
-                    data={profitByUnit}
-                    margin={{ top: 8, right: 16, left: 0, bottom: 20 }}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="name" />
-                    <YAxis />
-                    <Tooltip formatter={(value) => formatCurrency(value)} />
-                    <Legend />
-                    <Bar dataKey="ganancia" fill="#2e7d32" name="Ganancia" />
-                    <Bar dataKey="ventas" fill="#1976d2" name="Ventas" />
-                    <Bar dataKey="gastos" fill="#d32f2f" name="Gastos" />
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <div style={{ padding: 20, textAlign: 'center', color: '#999' }}>
-                  No hay datos en el período seleccionado
+                {/* GRÁFICO 2: Ganancia por Negocio */}
+                <div style={{ marginBottom: 24 }}>
+                  <h4>Ganancia por Unidad de Negocio</h4>
+                  {profitByUnit.length > 0 ? (
+                    <ResponsiveContainer width="100%" height={250}>
+                      <BarChart
+                        data={profitByUnit}
+                        margin={{ top: 8, right: 16, left: 0, bottom: 20 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="name" />
+                        <YAxis />
+                        <Tooltip formatter={(value) => formatCurrency(value)} />
+                        <Legend />
+                        <Bar dataKey="ganancia" fill="#2e7d32" name="Ganancia" />
+                        <Bar dataKey="ventas" fill="#1976d2" name="Ventas" />
+                        <Bar dataKey="gastos" fill="#d32f2f" name="Gastos" />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div style={{ padding: 20, textAlign: 'center', color: '#999' }}>
+                      No hay datos en el período seleccionado
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
 
-            {/* GRÁFICO 3: Top 5 Productos Vendidos */}
-            <div style={{ marginBottom: 24 }}>
-              <h4>Top 5 Productos Vendidos</h4>
-              {topProducts.length > 0 ? (
-                <ResponsiveContainer width="100%" height={250}>
-                  <BarChart
-                    data={topProducts}
-                    layout="vertical"
-                    margin={{ top: 8, right: 16, left: 120, bottom: 20 }}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis type="number" />
-                    <YAxis dataKey="name" type="category" width={110} />
-                    <Tooltip formatter={(value) => `${value} unid.`} />
-                    <Bar dataKey="cantidad" fill="#1976d2" />
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <div style={{ padding: 20, textAlign: 'center', color: '#999' }}>
-                  No hay ventas en el período seleccionado
+                {/* GRÁFICO 3: Top 5 Productos Vendidos */}
+                <div style={{ marginBottom: 24 }}>
+                  <h4>Top 5 Productos Vendidos</h4>
+                  {topProducts.length > 0 ? (
+                    <ResponsiveContainer width="100%" height={250}>
+                      <BarChart
+                        data={topProducts}
+                        layout="vertical"
+                        margin={{ top: 8, right: 16, left: 120, bottom: 20 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis type="number" />
+                        <YAxis dataKey="name" type="category" width={110} />
+                        <Tooltip formatter={(value) => `${value} unid.`} />
+                        <Bar dataKey="cantidad" fill="#1976d2" />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div style={{ padding: 20, textAlign: 'center', color: '#999' }}>
+                      No hay ventas en el período seleccionado
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
 
-            {/* GRÁFICO 4: Stock Crítico (Top 5) */}
-            <div style={{ marginBottom: 24 }}>
-              <h4>Top 5 Productos con Stock Crítico</h4>
-              {lowStockItems.length > 0 ? (
-                <div style={{ padding: 20 }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                    <thead>
-                      <tr style={{ borderBottom: '2px solid #ddd' }}>
-                        <th style={{ textAlign: 'left', padding: 12 }}>Producto</th>
-                        <th style={{ textAlign: 'center', padding: 12 }}>Stock Actual</th>
-                        <th style={{ textAlign: 'center', padding: 12 }}>Stock Mínimo</th>
-                        <th style={{ textAlign: 'center', padding: 12 }}>Unidad</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {lowStockItems.map((item) => (
-                        <tr key={item.id} style={{ borderBottom: '1px solid #eee' }}>
-                          <td style={{ padding: 12 }}>{item.name}</td>
-                          <td
-                            style={{
-                              textAlign: 'center',
-                              padding: 12,
-                              color: item.stock <= 0 ? '#d32f2f' : '#f57c00',
-                              fontWeight: 600,
-                            }}
-                          >
-                            {item.stock}
-                          </td>
-                          <td style={{ textAlign: 'center', padding: 12 }}>{item.minimo}</td>
-                          <td style={{ textAlign: 'center', padding: 12, fontSize: 12, color: '#666' }}>
-                            {item.businessUnit || '-'}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                {/* GRÁFICO 4: Stock Crítico (Top 5) */}
+                <div style={{ marginBottom: 24 }}>
+                  <h4>Top 5 Productos con Stock Crítico</h4>
+                  {lowStockItems.length > 0 ? (
+                    <div style={{ padding: 20 }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead>
+                          <tr style={{ borderBottom: '2px solid #ddd' }}>
+                            <th style={{ textAlign: 'left', padding: 12 }}>Producto</th>
+                            <th style={{ textAlign: 'center', padding: 12 }}>Stock Actual</th>
+                            <th style={{ textAlign: 'center', padding: 12 }}>Stock Mínimo</th>
+                            <th style={{ textAlign: 'center', padding: 12 }}>Unidad</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {lowStockItems.map((item) => (
+                            <tr key={item.id} style={{ borderBottom: '1px solid #eee' }}>
+                              <td style={{ padding: 12 }}>{item.name}</td>
+                              <td
+                                style={{
+                                  textAlign: 'center',
+                                  padding: 12,
+                                  color: item.stock <= 0 ? '#d32f2f' : '#f57c00',
+                                  fontWeight: 600,
+                                }}
+                              >
+                                {item.stock}
+                              </td>
+                              <td style={{ textAlign: 'center', padding: 12 }}>{item.minimo}</td>
+                              <td style={{ textAlign: 'center', padding: 12, fontSize: 12, color: '#666' }}>
+                                {item.businessUnit || '-'}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div style={{ padding: 20, textAlign: 'center', color: '#999' }}>
+                      No hay productos con stock crítico
+                    </div>
+                  )}
                 </div>
-              ) : (
-                <div style={{ padding: 20, textAlign: 'center', color: '#999' }}>
-                  No hay productos con stock crítico
-                </div>
-              )}
-            </div>
 
-            {/* GRÁFICO 5: Distribución de Gastos (Torta) */}
-            <div style={{ marginBottom: 24 }}>
-              <h4>Distribución de Gastos</h4>
-              {expensesByCategory.length > 0 ? (
-                <ResponsiveContainer width="100%" height={280}>
-                  <PieChart margin={{ top: 8, right: 16, left: 16, bottom: 8 }}>
-                    <Pie
-                      data={expensesByCategory}
-                      dataKey="value"
-                      nameKey="name"
-                      cx="50%"
-                      cy="50%"
-                      outerRadius={80}
-                      label={({ name, value }) => `${name}: ${formatCurrency(value)}`}
-                      paddingAngle={2}
-                    >
-                      {expensesByCategory.map((entry, index) => {
-                        const colors = ['#d32f2f', '#f57c00', '#2196f3', '#4caf50', '#9c27b0', '#ff9800'];
-                        return <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />;
-                      })}
-                    </Pie>
-                    <Legend />
-                    <Tooltip formatter={(value) => formatCurrency(value)} />
-                  </PieChart>
-                </ResponsiveContainer>
-              ) : (
-                <div style={{ padding: 20, textAlign: 'center', color: '#999' }}>
-                  No hay gastos en el período seleccionado
+                {/* GRÁFICO 5: Distribución de Gastos (Torta) */}
+                <div style={{ marginBottom: 24 }}>
+                  <h4>Distribución de Gastos</h4>
+                  {expensesByCategory.length > 0 ? (
+                    <ResponsiveContainer width="100%" height={280}>
+                      <PieChart margin={{ top: 8, right: 16, left: 16, bottom: 8 }}>
+                        <Pie
+                          data={expensesByCategory}
+                          dataKey="value"
+                          nameKey="name"
+                          cx="50%"
+                          cy="50%"
+                          outerRadius={80}
+                          label={({ name, value }) => `${name}: ${formatCurrency(value)}`}
+                          paddingAngle={2}
+                        >
+                          {expensesByCategory.map((entry, index) => {
+                            const colors = ['#d32f2f', '#f57c00', '#2196f3', '#4caf50', '#9c27b0', '#ff9800'];
+                            return <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />;
+                          })}
+                        </Pie>
+                        <Legend />
+                        <Tooltip formatter={(value) => formatCurrency(value)} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div style={{ padding: 20, textAlign: 'center', color: '#999' }}>
+                      No hay gastos en el período seleccionado
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
 
-            {/* GRÁFICO ADICIONAL: Ingresos por Día */}
-            <div style={{ marginBottom: 24 }}>
-              <h4>Ingresos Diarios</h4>
-              {salesByDay.length > 0 ? (
-                <ResponsiveContainer width="100%" height={250}>
-                  <LineChart data={salesByDay} margin={{ top: 8, right: 16, left: 0, bottom: 20 }}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="date" />
-                    <YAxis />
-                    <Tooltip formatter={(value) => formatCurrency(value)} />
-                    <Line type="monotone" dataKey="total" stroke="#1976d2" dot={false} strokeWidth={2} />
-                  </LineChart>
-                </ResponsiveContainer>
-              ) : (
-                <div style={{ padding: 20, textAlign: 'center', color: '#999' }}>
-                  No hay datos de ingresos en el período
+                {/* GRÁFICO ADICIONAL: Ingresos por Día */}
+                <div style={{ marginBottom: 24 }}>
+                  <h4>Ingresos Diarios</h4>
+                  {salesByDay.length > 0 ? (
+                    <ResponsiveContainer width="100%" height={250}>
+                      <LineChart data={salesByDay} margin={{ top: 8, right: 16, left: 0, bottom: 20 }}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="date" />
+                        <YAxis />
+                        <Tooltip formatter={(value) => formatCurrency(value)} />
+                        <Line type="monotone" dataKey="total" stroke="#1976d2" dot={false} strokeWidth={2} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div style={{ padding: 20, textAlign: 'center', color: '#999' }}>
+                      No hay datos de ingresos en el período
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          </section>
+              </section>
+            </>
+          )}
 
           {/* 🏢 ANÁLISIS POR UNIDAD DE NEGOCIO */}
           <BusinessUnitSection title="vidrieria" unit="vidrieria" transactions={transactions} products={products} dateRange={dateRange} />
