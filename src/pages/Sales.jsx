@@ -112,6 +112,7 @@ export default function Sales() {
       const newItem = {
         id,
         name: item.name,
+        caracteristica: item.caracteristica || '',
         qty: 1,
         // price used for calculations in cart (default to basePrice)
         price: basePrice,
@@ -214,6 +215,7 @@ export default function Sales() {
       return {
         id: it.id,
         name: it.name,
+        caracteristica: it.caracteristica,
         qty: it.qty,
         price: precioUnitarioUsado,
         precioUnitarioUsado,
@@ -730,6 +732,7 @@ export default function Sales() {
                     <strong>{p.name}</strong>
                     <div className="small">{p._kind === 'product' ? `Stock: ${p.stock}` : 'Servicio'}</div>
                   </div>
+                  <div>{p.caracteristica}</div>
                   <div className="flex">
                     <div className="small" style={{ marginRight: 8 }}>
                       {formatCurrency(p._kind === 'product' ? (saleType === 'mayorista' ? p.price_mayor : p.price_minor) : p.price)}
@@ -935,7 +938,7 @@ export default function Sales() {
                       marginTop: "-9px"
                     }}
                   >
-                    $
+                    Precio Final $
                   </span>
                   <input
                     className="input"
@@ -1039,6 +1042,7 @@ export default function Sales() {
                 >
                   <div>
                     <strong>{p.name}</strong>
+                     <div>{p.caracteristica}</div>
                     <div className="small">{isService ? 'Servicio' : `Stock: ${p.stock}`}</div>
                   </div>
                   <div className="flex">
@@ -1186,7 +1190,7 @@ export default function Sales() {
                   <tr>
                     <th>Fecha</th>
                     <th>Total</th>
-                    <th>Items</th>
+                    <th>Producto</th>
                     <th>Tipo</th>
                     <th>Unidad</th>
                     <th>Método</th>

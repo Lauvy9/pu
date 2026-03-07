@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { useStore } from '../context/StoreContext'
 import ProductForm from '../components/ProductForm'
 import ProductList from '../components/ProductList'
+import { formatARS } from '../utils/formatCurrency'
 
 export default function Inventory() {
   const { products, actions } = useStore()

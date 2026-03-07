@@ -1,4 +1,5 @@
 import React from 'react'
+import { formatARS } from '../utils/formatCurrency'
 
 export default function ProductList({products, onEdit, onDelete, ofertas = [], onAddOffer, onRemoveOffer}){
   return (
@@ -38,14 +39,18 @@ function ProductRow({ p, onEdit, onDelete, ofertas, onAddOffer, onRemoveOffer })
   return (
     <tr>
       <td>{p.name}</td>
-      <td>{p.caracteristica}</td>
-      <td>{((p.businessUnit === 'muebleria' || p.businessUnit === 'mobileria') && 'Mueblería') || (p.businessUnit === 'vidrieria' && 'Vidriería') || 'No especificado'}</td>
-      <td>${(p.cost ?? 0).toFixed(2)}</td>
-      <td>{p.porcentajeGananciaMayorista ?? p.pct_mayor ?? 50}%</td>
-      <td>${(p.price_mayor ?? 0).toFixed(2)}</td>
-      <td>{p.porcentajeGananciaMinorista ?? p.pct_minor ?? 60}%</td>
-      <td>${(p.price_minor ?? 0).toFixed(2)}</td>
-      <td>{p.stock}</td>
+<td>{p.caracteristica}</td>
+<td>{((p.businessUnit === 'muebleria' || p.businessUnit === 'mobileria') && 'Mueblería') || (p.businessUnit === 'vidrieria' && 'Vidriería') || 'No especificado'}</td>
+
+<td>{formatARS(p.cost ?? 0)}</td>
+
+<td>{p.porcentajeGananciaMayorista ?? p.pct_mayor ?? 50}%</td>
+<td>{formatARS(p.price_mayor ?? 0)}</td>
+
+<td>{p.porcentajeGananciaMinorista ?? p.pct_minor ?? 60}%</td>
+<td>{formatARS(p.price_minor ?? 0)}</td>
+
+<td>{p.stock}</td>
       <td>
         {oferta && oferta.activo ? (
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
