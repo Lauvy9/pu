@@ -155,6 +155,53 @@ app.post('/api/send-email', requireApiKey, async (req, res) => {
     return res.status(500).json({ error: String(err) })
   }
 })
+// INVENTARIO SIMPLE
+let products = []
+let idCounter = 1
+app.get("/api/products", (req, res) => {
+  res.json(products)
+})
+app.post("/api/products", (req, res) => {
+
+  const {
+    name,
+    caracteristica,
+    descripcion,
+    stock,
+    cost,
+    price_minor,
+    price_mayor,
+    business_unit
+  } = req.body
+
+  const product = {
+    id: idCounter++,
+    name,
+    caracteristica,
+    descripcion,
+    stock,
+    cost,
+    price_minor,
+    price_mayor,
+    business_unit,
+    created_at: new Date()
+  }
+
+  products.push(product)
+
+  res.json(product)
+})
+
+app.delete("/api/products/:id", (req, res) => {
+
+  const id = Number(req.params.id)
+
+  products = products.filter(p => p.id !== id)
+
+  res.json({ ok: true })
+
+})
 
 const PORT = process.env.PORT || 4000
+
 app.listen(PORT, ()=> console.log('Server listening on', PORT))

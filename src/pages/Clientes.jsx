@@ -4,6 +4,7 @@ import { formatCurrency } from '../utils/helpers'
 import { buildClientsFromSales } from '../utils/clientHelpers'
 import ClientDetail from '../components/ClientDetail'
 import './Clientes.css'
+import { getAll } from '../firebase/firestoreHelpers'
 
 export default function Clientes(){
   const { sales, fiados, company } = useStore()
@@ -13,6 +14,18 @@ export default function Clientes(){
   const [vistaActiva, setVistaActiva] = useState('resumen')
   const [toast, setToast] = useState(null)
   const [expandedRow, setExpandedRow] = useState(null)
+  const [clientesFirestore, setClientesFirestore] = useState(null)
+
+  // Si Firestore está habilitado, obtener la colección 'clientes'
+  useEffect(() => {
+    let mounted = true
+    if (import.meta.env.VITE_USE_FIRESTORE === 'true') {
+      getAll('clientes')
+        .then(arr => { if (mounted) setClientesFirestore(arr) })
+        .catch(err => { console.warn('Error fetching clientes from Firestore', err); if (mounted) setClientesFirestore(null) })
+    }
+    return () => { mounted = false }
+  }, [])
 
   /**
    * Construir clientes desde ventas (fuente única de verdad)
@@ -20,12 +33,21 @@ export default function Clientes(){
    */
   const clientesResumen = useMemo(() => {
     try {
+      // Si Firestore está habilitado y tenemos datos, usarlos como fuente
+      if (import.meta.env.VITE_USE_FIRESTORE === 'true' && Array.isArray(clientesFirestore)) {
+        return clientesFirestore.map(c => ({
+          ...c,
+          totalComprado: Number(c.totalComprado || 0),
+          totalPagado: Number(c.totalPagado || 0),
+          totalAdeudado: Number(c.totalAdeudado || 0),
+        }))
+      }
       return buildClientsFromSales(sales || [], fiados || [])
-    } catch(e) { 
-      console.error('Error en buildClientsFromSales:', e)
-      return [] 
+    } catch(e) {
+      console.error('Error en buildClientsFromSales o parseo Firestore:', e)
+      return []
     }
-  }, [sales, fiados])
+  }, [sales, fiados, clientesFirestore])
 
   /**
    * Separar clientes por estado de deuda

@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { useStore } from '../context/StoreContext'
 import { formatCurrency } from '../utils/helpers'
 import { isPaymentOnOrBeforeDue } from '../utils/dateHelpers'
+import { saveFiado } from '../services/firestoreService'
 
 export default function PaymentModal({ saleId, clientId, entryId, onClose }){
   const { sales = [], fiados = [], bankAccounts = [], actions } = useStore()
@@ -29,7 +30,10 @@ export default function PaymentModal({ saleId, clientId, entryId, onClose }){
     if (sale) {
       actions.registerPayment({ relatedId: sale.id, type: 'sale', metodo: method, amount: Number(amount), accountId, date: isoDate })
     } else if (client && entry) {
-      actions.registerFiadoPayment(client.id, entry.id, { amount: Number(amount), method, accountId, date: isoDate })
+      const res = actions.registerFiadoPayment(client.id, entry.id, { amount: Number(amount), method, accountId, date: isoDate })
+      if (import.meta.env.VITE_USE_FIRESTORE === 'true') {
+        try { const updated = (fiados || []).find(c => c.id === client.id); saveFiado(updated || client).catch(e => console.warn('saveFiado failed', e)) } catch(e){ console.warn('saveFiado error', e) }
+      }
     }
     setAmount('')
   }

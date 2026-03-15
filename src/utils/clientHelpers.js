@@ -208,6 +208,7 @@ function getProductosFromSale(sale) {
   return items.map(item => ({
     id: item.id,
     name: item.name || item.nombre || '',
+    caracteristica: item.caracteristica || (item.productSnapshot && item.productSnapshot.caracteristica) || '',
     quantity: Number(item.qty || item.quantity || 0),
     price: Number(item.price || item.precio || 0),
     productUnit: item.businessUnit || item.unit || item.productUnit || '',

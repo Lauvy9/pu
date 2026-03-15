@@ -4,7 +4,10 @@ import { Navigate } from 'react-router-dom'
 import { BrowserRouter, Routes, Route, useLocation, useNavigate } from 'react-router-dom'
 import Navbar from './components/Navbar.jsx'
 
+
+
 import Inventory from "./pages/Inventory.jsx"
+
 import Sales from "./pages/Sales.jsx"
 import Reports from "./pages/Reports.jsx"
 import History from "./pages/History.jsx"
@@ -30,20 +33,21 @@ function InnerRouter(){
   const location = useLocation()
   const navigate = useNavigate()
   // Map path -> section key helper
+ 
   const pathToSection = (path)=>{
-    if (!path) return null
-    if (path.startsWith('/inventory')) return 'inventory'
-    if (path.startsWith('/sales')) return 'ventas'
-    if (path.startsWith('/ofertas')) return 'ofertas'
-    if (path.startsWith('/history')) return 'history'
-    if (path.startsWith('/fiados')) return 'fiados'
-    if (path.startsWith('/presupuestos')) return 'presupuestos'
-    if (path.startsWith('/servicios')) return 'servicios'
-    // treat legacy /finanzas and /reports as reportes
-    if (path.startsWith('/finanzas') || path.startsWith('/reports') || path.startsWith('/reportes')) return 'reportes'
-    if (path === '/' || path.startsWith('/')) return 'reportes'
-    return null
-  }
+  if (!path) return null
+  if (path.startsWith('/inventory')) return 'inventory'
+  if (path.startsWith('/sales')) return 'ventas'
+  if (path.startsWith('/ofertas')) return 'ofertas'
+  if (path.startsWith('/history')) return 'history'
+  if (path.startsWith('/fiados')) return 'fiados'
+  if (path.startsWith('/presupuestos')) return 'presupuestos'
+  if (path.startsWith('/servicios')) return 'servicios'
+
+  if (path.startsWith('/finanzas') || path.startsWith('/reports') || path.startsWith('/reportes')) return 'reportes'
+  if (path === '/' || path.startsWith('/')) return 'reportes'
+  return null
+}
 
   const [activeSection, setActiveSection] = useState(()=> pathToSection(location.pathname) || 'reportes')
 
@@ -73,6 +77,8 @@ function InnerRouter(){
           <Routes>
             <Route path="/" element={<ReportesProfesional />} />
             <Route path="/inventory" element={<Inventory />} />
+            
+           
             <Route path="/ofertas" element={<Ofertas />} />
             <Route path="/sales" element={<Sales />} />
             <Route path="/reports" element={<Reports />} />

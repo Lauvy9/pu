@@ -224,6 +224,9 @@ export default function ClientDetail({ client, onClose }){
                     {venta.items.map((item, i) => (
                       <div key={i} className="sale-item-detail">
                         <span className="item-name">{item.name || 'Producto'}</span>
+                        {((item.caracteristica) || (item.productSnapshot && item.productSnapshot.caracteristica)) && (
+                          <span className="item-feature">{item.caracteristica || item.productSnapshot.caracteristica}</span>
+                        )}
                         <span className="item-qty">x{item.quantity || 1}</span>
                         <span className="item-price">{formatCurrency(item.price || 0)}</span>
                       </div>
@@ -251,6 +254,9 @@ export default function ClientDetail({ client, onClose }){
             {productosComprados.map((prod, idx) => (
               <div key={prod.id || idx} className="product-card">
                 <div className="product-name">{prod.name || 'Producto'}</div>
+                {prod.caracteristica && (
+                  <div className="product-feature" style={{ fontSize: 12, color: '#555' }}>{prod.caracteristica}</div>
+                )}
                 <div className="product-stat">
                   <span className="stat-label">Cantidad:</span>
                   <span className="stat-value">{prod.quantity || 0}</span>

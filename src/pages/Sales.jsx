@@ -1,10 +1,13 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { saveSale } from '../services/firestoreService'
 import { useStore } from '../context/StoreContext';
 import Cart from '../components/Cart';
 import { buildClientsFromSales } from '../utils/clientHelpers'
 import { formatCurrency, toLocalYMD } from '../utils/helpers';
 import { addMonthsLocal, parseToLocalDate } from '../utils/dateHelpers'
+import { selectBasePrice, computeOfferPrice, canAddToCart } from '../utils/salesHelpers'
 import PaymentModal from '../components/PaymentModal'
+import { saveFiado } from '../services/firestoreService'
 import './Sales.css'
 // Link removed: antiguo enlace a Crear Presupuesto eliminado
 import { exportSalePDF } from '../utils/salePdfExport'
@@ -13,6 +16,7 @@ export default function Sales() {
   const { products, services, serviceTemplates, bankAccounts, actions, sales, fiados, company } = useStore();
   const [ofertas, setOfertas] = useState(() => { try { const raw = localStorage.getItem('vid_ofertas'); return raw ? JSON.parse(raw) : [] } catch (e) { return [] } })
 
+  // Estados principales (carrito, filtros y contacto)
   const [query, setQuery] = useState('');
   const [searchFilter, setSearchFilter] = useState('all'); // all | products | services
   const [cart, setCart] = useState([]);
@@ -27,8 +31,16 @@ export default function Sales() {
   const [clienteEmailInput, setClienteEmailInput] = useState('');
   const [clienteAddress, setClienteAddress] = useState('');
   const [saveClient, setSaveClient] = useState(false);
+
   // (Presupuestos: moved to dedicated form and route)
   const [cartAccent, setCartAccent] = useState(() => (typeof window !== 'undefined' && localStorage.getItem('cart_accent')) || '#ff9800');
+
+  // Simple in-component toast replacement for alert()
+  const [toastMsg, setToastMsg] = useState('')
+  function showToast(msg) {
+    try { setToastMsg(String(msg)) } catch { setToastMsg('') }
+    setTimeout(() => setToastMsg(''), 3500)
+  }
 
   // Estados para creación rápida de servicios con plantillas
   const [selectedServiceTemplateId, setSelectedServiceTemplateId] = useState('');
@@ -54,6 +66,42 @@ export default function Sales() {
   const [newBankType, setNewBankType] = useState("Cuenta Corriente");
   const [newBankNumber, setNewBankNumber] = useState("");
   const [newBankHolder, setNewBankHolder] = useState("");
+
+
+async function finishSale(cart, clienteContacto, metodoPago, businessUnit) {
+  if (!cart || cart.length === 0) return showToast('Carrito vacío')
+  try {
+    const saleData = {
+      items: cart.map(item => ({ id: item.id, name: item.name, qty: item.qty, price: item.price, tipoServicio: item.tipoServicio || null, unidad: item.unidad || null, descripcion: item.descripcion || null })),
+      cliente: clienteContacto || null,
+      metodoPago: metodoPago || 'efectivo',
+      businessUnit: businessUnit || null,
+      total: cart.reduce((sum, i) => sum + (i.price || 0) * (i.qty || 1), 0),
+      date: new Date().toISOString(),
+      pagado: false,
+      entregado: false
+    }
+
+    if (import.meta.env.VITE_USE_FIRESTORE === 'true') {
+      const res = await saveSale(saleData)
+      if (res && res.ok) {
+        showToast('Venta registrada correctamente')
+        return res.id
+      }
+      console.warn('saveSale failed', res)
+      showToast('Venta registrada localmente, fallo al guardar en Firestore')
+      return null
+    }
+
+    // Firestore disabled: just return null (sale already registered locally via store)
+    return null
+  } catch (err) {
+    console.error(err)
+    showToast('Error guardando la venta')
+    return null
+  }
+}
+
 
   // Cargar estado del carrito desde localStorage al iniciar
   useEffect(() => {
@@ -87,26 +135,25 @@ export default function Sales() {
   function addToCart(item) {
     // item may be a product or a service (we normalized name/price in filtered)
     const isService = item._kind === 'service';
-    const basePrice = isService ? (item.price || item.precio || 0) : (saleType === 'mayorista' ? (item.price_mayor ?? item.price ?? item.cost ?? 0) : (item.price_minor ?? item.price ?? item.cost ?? 0));
+    const basePrice = selectBasePrice(item, saleType)
     const id = isService ? `svc_${item.id}` : item.id;
 
     // buscar oferta activa
     const oferta = (ofertas || []).find(o => String(o.id) === String(item.id) && o.activo);
     const ofertaPct = oferta ? Number(oferta.ofertaPct || oferta.ofertaPct || 0) : 0
-    const offerPrice = oferta ? Number((basePrice * (1 - ofertaPct / 100)).toFixed(2)) : null
+    const offerPrice = oferta ? computeOfferPrice(basePrice, ofertaPct) : null
 
     setCart(prev => {
       const exist = prev.find(i => i.id === id);
-      // If product, validate stock: total requested (existing qty + 1) <= product.stock
+      // If product, validate stock using helper
       if (!isService) {
         const prod = products.find(p => p.id === item.id);
         const existingQty = exist ? Number(exist.qty || 0) : 0;
         const currentStock = prod ? (prod.stock || 0) : 0;
-        const totalRequested = existingQty + 1;
-        if (totalRequested > currentStock) {
-          const available = Math.max(0, currentStock - existingQty);
-          alert(`No hay stock suficiente para ${item.name}. Stock disponible: ${currentStock}, Ya en carrito: ${existingQty}, Puedes agregar: ${available}`);
-          return prev;
+        const canAdd = canAddToCart(currentStock, existingQty, 1)
+        if (canAdd <= 0) {
+          showToast(`No hay stock suficiente para ${item.name}. Stock disponible: ${currentStock}, Ya en carrito: ${existingQty}, Puedes agregar: ${canAdd}`)
+          return prev
         }
       }
       const newItem = {
@@ -183,8 +230,8 @@ export default function Sales() {
 
   // Guardar descripción base de la plantilla
   function handleSaveServiceTemplate() {
-    if (!svcNombre) return alert('Ingresá un nombre para la plantilla');
-    if (svcMonto <= 0) return alert('Ingresá un precio válido');
+    if (!svcNombre) return showToast('Ingresá un nombre para la plantilla');
+    if (svcMonto <= 0) return showToast('Ingresá un precio válido');
 
     const template = {
       nombre: svcNombre,
@@ -195,14 +242,14 @@ export default function Sales() {
     };
 
     const saved = actions.addServiceTemplate(template);
-    alert(`Plantilla "${svcNombre}" guardada`);
+    showToast(`Plantilla "${svcNombre}" guardada`);
     setSelectedServiceTemplateId(saved.id);
   }
 
   async function finish() {
-    if (cart.length === 0) return alert('El carrito está vacío');
-    if (!metodoPago && saleType !== 'fiado') return alert('Seleccioná un método de pago');
-    if (metodoPago === 'transferencia' && !selectedBankId) return alert('Seleccioná una cuenta bancaria para transferencia');
+    if (cart.length === 0) return showToast('El carrito está vacío');
+    if (!metodoPago && saleType !== 'fiado') return showToast('Seleccioná un método de pago');
+    if (metodoPago === 'transferencia' && !selectedBankId) return showToast('Seleccioná una cuenta bancaria para transferencia');
 
     const itemsDetailed = cart.map(it => {
       // si es servicio el id viene con prefijo svc_
@@ -355,6 +402,9 @@ export default function Sales() {
             const added = actions.addFiadoClient(nuevo);
             // Si la acción devuelve el cliente, úsalo, si no asumimos el objeto creado
             client = added && added.id ? added : nuevo;
+            if (import.meta.env.VITE_USE_FIRESTORE === 'true') {
+              try { await saveFiado(client) } catch(e) { console.warn('saveFiado failed', e) }
+            }
           } catch (e) {
             console.warn('addFiadoClient failed', e);
             client = nuevo;
@@ -393,7 +443,7 @@ export default function Sales() {
 
       // crear entry si hay deuda
       if (client && entryAmount > 0) {
-        try {
+          try {
           const resEntry = actions.addFiadoEntry(client.id, {
             amount: entryAmount,
             originalAmount: Number(total),
@@ -405,6 +455,9 @@ export default function Sales() {
           // actions.addFiadoEntry ideally returns the entry; if no return, keep null-safe usage
           entry = resEntry && resEntry.id ? resEntry : (resEntry || null)
           if (entry && entry.dueDate) sale.dueDate = entry.dueDate
+          if (import.meta.env.VITE_USE_FIRESTORE === 'true') {
+            try { await saveFiado(client) } catch(e){ console.warn('saveFiado failed', e) }
+          }
         } catch (e) {
           console.warn('addFiadoEntry failed', e)
         }
@@ -435,6 +488,9 @@ export default function Sales() {
             console.warn('registerFiadoPayment returned not ok:', res)
             sale.payments.push(paymentToRegister)
           }
+          if (import.meta.env.VITE_USE_FIRESTORE === 'true') {
+            try { await saveFiado(client) } catch(e){ console.warn('saveFiado failed', e) }
+          }
         } catch (e) {
           console.warn('registerFiadoPayment exception', e)
           // agregar al snapshot para visibilidad; persistencia puede fallar y requerir reintento manual
@@ -463,16 +519,37 @@ export default function Sales() {
       // opcional: si actions.registerSale devuelve un objeto actualizado, podríamos usarlo
     } catch (e) { console.warn('Registrar venta falló', e) }
 
-    // Limpiar carrito y localStorage
-    setCart([]);
-    localStorage.removeItem('currentCart');
-    setClienteSeleccionado('');
-    setNuevoCliente('');
-    setClienteNombre('');
-    setClienteTelefonoInput('');
-    setClienteEmailInput('');
-    setSelectedBankId('');
-    alert('Venta registrada');
+    // Guardar en Firestore (no duplicar lógica de store)
+    try {
+      const saleId = await finishSale(
+        cart,
+        {
+          nombre: clienteNombre,
+          telefono: clienteTelefonoInput,
+          email: clienteEmailInput,
+          direccion: clienteAddress
+        },
+        metodoPago,
+        businessUnit
+      );
+
+      if (saleId) {
+        setCart([]);
+        localStorage.removeItem('currentCart');
+        setClienteSeleccionado('');
+        setNuevoCliente('');
+        setClienteNombre('');
+        setClienteTelefonoInput('');
+        setClienteEmailInput('');
+        setSelectedBankId('');
+        showToast('Venta registrada');
+      } else {
+        showToast('Venta registrada localmente, pero fallo al guardar en Firestore');
+      }
+    } catch (err) {
+      console.warn('Error guardando en Firestore', err)
+      showToast('Venta registrada localmente, error al guardar en Firestore');
+    }
   }
 
   async function toggleEntrega(id) {
@@ -559,11 +636,11 @@ export default function Sales() {
     try {
       const res = actions.deleteSale(id)
       if (res && res.ok) {
-        alert('Venta eliminada y stock revertido')
+        showToast('Venta eliminada y stock revertido')
       } else {
-        alert('No se pudo eliminar la venta')
+        showToast('No se pudo eliminar la venta')
       }
-    } catch (e) { console.error(e); alert('Error al eliminar venta') }
+    } catch (e) { console.error(e); showToast('Error al eliminar venta') }
   }
 
   function startEditSale(s) {
@@ -591,7 +668,7 @@ export default function Sales() {
         const originalQty = original ? Number(original.qty || 0) : 0
         const allowedMax = (prod?.stock || 0) + originalQty
         if (newQty > allowedMax) {
-          alert(`Cantidad máxima disponible para ${it.name} es ${allowedMax}`)
+          showToast(`Cantidad máxima disponible para ${it.name} es ${allowedMax}`)
           newQty = allowedMax
         }
         if (newQty < 0) newQty = 0
@@ -613,12 +690,12 @@ export default function Sales() {
   }
 
   function addItemToEditingSale() {
-    if (!editSelectedId) return alert('Seleccioná un producto o servicio');
+    if (!editSelectedId) return showToast('Seleccioná un producto o servicio');
     const isService = String(editSelectedId).startsWith('svc_')
     const rawId = isService ? parseInt(String(editSelectedId).replace('svc_', '')) : parseInt(editSelectedId)
     let source = isService ? services : products
     const itemSrc = source.find(x => x.id === rawId)
-    if (!itemSrc) return alert('Item no encontrado')
+    if (!itemSrc) return showToast('Item no encontrado')
     const price = isService ? (itemSrc.price || itemSrc.precio || 0) : (editSalePriceForType(itemSrc))
     const newItem = {
       id: isService ? `svc_${itemSrc.id}` : itemSrc.id,
@@ -638,14 +715,14 @@ export default function Sales() {
       if ((existingQty + newItem.qty) > allowedMax) {
         const canAdd = Math.max(0, allowedMax - existingQty)
         if (canAdd <= 0) {
-          alert(`No hay stock suficiente para ${newItem.name}. Máximo permitido: ${allowedMax}`)
+            showToast(`No hay stock suficiente para ${newItem.name}. Máximo permitido: ${allowedMax}`)
           // reset selectors
           setEditSelectedId('')
           setEditSelectedQty(1)
           setEditQuery('')
           return
         }
-        alert(`Solo se pueden agregar ${canAdd} unidades adicionales de ${newItem.name} (máx ${allowedMax})`)
+          showToast(`Solo se pueden agregar ${canAdd} unidades adicionales de ${newItem.name} (máx ${allowedMax})`)
         newItem.qty = canAdd
       }
     }
@@ -687,18 +764,21 @@ export default function Sales() {
       const newSale = { ...editingSale, profit }
       const res = actions.updateSale(editingSale.id, newSale)
       if (res && res.ok) {
-        alert('Venta actualizada y stock ajustado')
+        showToast('Venta actualizada y stock ajustado')
         setEditingSale(null)
       } else {
-        alert('No se pudo actualizar la venta')
+        showToast('No se pudo actualizar la venta')
       }
-    } catch (e) { console.error(e); alert('Error al guardar la venta editada') }
+    } catch (e) { console.error(e); showToast('Error al guardar la venta editada') }
   }
 
   // La funcionalidad de enviar boleta por WhatsApp se ha removido.
 
   return (
-    <div className="grid">
+    <div className="sales-grid">
+      {toastMsg ? (
+        <div style={{ position: 'fixed', right: 20, bottom: 20, background: '#333', color: '#fff', padding: '8px 12px', borderRadius: 6, zIndex: 9999, boxShadow: '0 2px 8px rgba(0,0,0,0.2)' }}>{toastMsg}</div>
+      ) : null}
       {/* PANEL DE NUEVA VENTA */}
       <div className="card">
         <h3>Nueva venta</h3>
@@ -791,7 +871,7 @@ export default function Sales() {
                   <input className="input" placeholder="Titular" value={newBankHolder} onChange={e => setNewBankHolder(e.target.value)} />
                   <div style={{ marginTop: 6 }}>
                     <button className="btn" onClick={() => {
-                      if (!newBankName || !newBankNumber) return alert('Completa nombre y número');
+                      if (!newBankName || !newBankNumber) return showToast('Completa nombre y número');
                       const acc = actions.addBankAccount({ bankName: newBankName, type: newBankType, number: newBankNumber, holder: newBankHolder });
                       setSelectedBankId(acc.id);
                       setShowAddAccount(false);
@@ -987,7 +1067,7 @@ export default function Sales() {
                 <button
                   className="btn"
                   onClick={async () => {
-                    if (!svcMonto || svcMonto <= 0) return alert('Ingresá el monto');
+                    if (!svcMonto || svcMonto <= 0) return showToast('Ingresá el monto');
                     try {
                       // Crear el servicio temporalmente en el store (sin plantilla)
                       const service = await actions.addService({
@@ -1016,10 +1096,10 @@ export default function Sales() {
                       setSvcMonto(0);
                       setSvcNombre('');
                       setSelectedServiceTemplateId('');
-                      alert('Servicio agregado al carrito');
+                      showToast('Servicio agregado al carrito');
                     } catch (e) {
                       console.error(e);
-                      alert('Error agregando servicio al carrito');
+                      showToast('Error agregando servicio al carrito');
                     }
                   }}
                   style={{ background: '#4CAF50' }}
@@ -1082,7 +1162,7 @@ export default function Sales() {
             const currentQtyInCart = it.qty || 0
             const canAdd = Math.max(0, allowed - currentQtyInCart)
             if (canAdd <= 0) {
-              return alert(`No hay más stock disponible para "${it.name}".\n\nStock total: ${allowed}\nEn carrito: ${currentQtyInCart}`)
+              return showToast(`No hay más stock disponible para "${it.name}".\n\nStock total: ${allowed}\nEn carrito: ${currentQtyInCart}`)
             }
             setCart(cart.map(i => i.id === id ? { ...i, qty: i.qty + 1 } : i))
           }}
@@ -1093,6 +1173,7 @@ export default function Sales() {
           )}
           total={total}
           onFinish={finish}
+
           onToggleOffer={toggleOfferInCart}
           stockByProductId={(id) => {
             // Para servicios, no hay límite de stock
@@ -1106,7 +1187,7 @@ export default function Sales() {
       </div>
 
       {/* PANEL DE ENTREGAS Y PAGOS (responsive) */}
-      <div className="card sales-card" style={{ gridColumn: '1 / -1', marginTop: 20 }}>
+      <div className="card sales-card fullwidth" style={{ gridColumn: '1 / -1', marginTop: 20 }}>
         <h3>Entregas y Pagos</h3>
         {/* Presupuestos NO se crean desde Ventas; la UI de presupuestos fue removida de esta pantalla. */}
         {salesSafe.length === 0 ? (
@@ -1356,7 +1437,7 @@ export default function Sales() {
                         </td>
                         <td>
                           {/* Botón de enviar boleta eliminado */}
-                          <button className="btn icon" title="Descargar boleta (PDF)" style={{ marginLeft: 8 }} onClick={async () => { try { await exportSalePDF(s, { company }); alert('Boleta descargada'); } catch (e) { console.error(e); alert('Error generando boleta PDF') } }}> Boleta</button>
+                          <button className="btn icon" title="Descargar boleta (PDF)" style={{ marginLeft: 8 }} onClick={async () => { try { await exportSalePDF(s, { company }); showToast('Boleta descargada'); } catch (e) { console.error(e); showToast('Error generando boleta PDF') } }}> Boleta</button>
                           {!((s.type === 'presupuesto') || s.isPresupuesto) && (
                             <>
                               <button className="btn icon" title="Registrar pago" style={{ marginLeft: 8 }} onClick={() => setPaymentModalSaleId(s.id)}>Registrar Pago</button>

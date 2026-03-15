@@ -1,6 +1,11 @@
 import React, { createContext, useState, useEffect, useContext } from 'react';
 import { formatCurrency } from '../utils/helpers';
+import { buildClientsFromSales } from '../utils/clientHelpers'
 import useLocalStorage from '../hooks/useLocalStorage';
+// Firestore client helpers (optional)
+import { setDocWithId, updateDocById } from '../firebase/firestoreHelpers'
+import { doc, deleteDoc } from 'firebase/firestore'
+import { db } from '../firebase/firebase'
 import { calculateFinancialData } from '../utils/financeHelpers'
 
 export const StoreContext = createContext();
@@ -59,12 +64,31 @@ export function StoreProvider({ children }) {
         return exists;
       }
 
+      // Normalizar unidad de negocio para evitar variantes (mayúsculas, acentos)
+      const rawUnit = (product.businessUnit || product.unidad || product.businessUnit || '')
+      const normalizeUnit = (u) => {
+        try{
+          const s = String(u||'').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '')
+          if (s.includes('mueb')) return 'muebleria'
+          if (s.includes('vidr')) return 'vidrieria'
+        }catch(e){}
+        return undefined
+      }
       const newProduct = {
         ...product,
         id: product.id || Date.now().toString(),
-        businessUnit: product.businessUnit || undefined,
+        businessUnit: normalizeUnit(rawUnit),
       };
       setProducts(prev => [...prev, newProduct]);
+      console.info('[StoreContext] addProduct saved locally', String(newProduct.id), 'unit:', newProduct.businessUnit)
+
+      // If Firestore is enabled, sync the newly added product (fire-and-forget)
+      try {
+        if (import.meta.env.VITE_USE_FIRESTORE === 'true') {
+          setDocWithId && setDocWithId('products', String(newProduct.id), { ...newProduct, createdAt: new Date().toISOString() })
+            .catch(err => console.warn('Firestore sync addProduct failed', err));
+        }
+      } catch (e) { /* ignore */ }
 
       // Registrar transacción tipo 'compra_mercaderia' para el stock inicial (NO es gasto operativo)
       const initialQty = Number(product.stock || 0);
@@ -159,11 +183,62 @@ export function StoreProvider({ children }) {
           }
         }
       } catch (e) { console.warn('updateProduct tx hook failed', e) }
-      setProducts(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p));
+      // Normalizar unidad cuando se actualiza
+      const upd = { ...updates }
+      if (typeof upd.businessUnit !== 'undefined') {
+        try{
+          const s = String(upd.businessUnit||'').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '')
+          if (s.includes('mueb')) upd.businessUnit = 'muebleria'
+          else if (s.includes('vidr')) upd.businessUnit = 'vidrieria'
+          else upd.businessUnit = undefined
+        }catch(e){ /* ignore */ }
+      }
+      setProducts(prev => prev.map(p => p.id === id ? { ...p, ...upd } : p));
+      // Sync update to Firestore if enabled
+      try {
+        if (import.meta.env.VITE_USE_FIRESTORE === 'true') {
+          updateDocById && updateDocById('products', String(id), updates).catch(err => console.warn('Firestore sync updateProduct failed', err));
+        }
+      } catch (e) { /* ignore */ }
     },
 
     deleteProduct: (id) => {
       setProducts(prev => prev.filter(p => p.id !== id));
+      // Delete from Firestore if enabled
+      try {
+        if (import.meta.env.VITE_USE_FIRESTORE === 'true') {
+          try { deleteDoc && deleteDoc(doc(db, 'products', String(id))).catch(e=>console.warn('Firestore delete failed', e)) } catch(e){}
+        }
+      } catch (e) { /* ignore */ }
+    },
+
+    // Firestore helpers
+    syncProductsToFirestore: async () => {
+      if (import.meta.env.VITE_USE_FIRESTORE !== 'true') return { ok: false, error: 'Firestore sync not enabled' };
+      try {
+        const arr = Array.isArray(products) ? products : [];
+        for (const p of arr) {
+          try {
+            await setDocWithId('products', String(p.id), { ...p, syncedAt: new Date().toISOString() })
+          } catch (err) { console.warn('syncProductsToFirestore: setDoc failed for', p.id, err) }
+        }
+        return { ok: true };
+      } catch (e) { return { ok: false, error: (e && e.message) || String(e) } }
+    },
+
+    // CLIENTES
+    syncClientsToFirestore: async () => {
+      if (import.meta.env.VITE_USE_FIRESTORE !== 'true') return { ok: false, error: 'Firestore sync not enabled' };
+      try {
+        const clients = buildClientsFromSales(sales || [], fiados || [])
+        for (const c of clients) {
+          try {
+            const docId = String(c.id || c.key || Date.now().toString())
+            await setDocWithId('clientes', docId, { ...c, syncedAt: new Date().toISOString() })
+          } catch (err) { console.warn('syncClientsToFirestore: setDoc failed for', c && (c.id || c.key), err) }
+        }
+        return { ok: true };
+      } catch (e) { return { ok: false, error: (e && e.message) || String(e) } }
     },
 
     // VENTAS
@@ -209,6 +284,7 @@ export function StoreProvider({ children }) {
               id: prod.id,
               name: prod.name || prod.title || prod.descripcion || '',
               descripcion: prod.descripcion || prod.description || '',
+              caracteristica: prod.caracteristica || prod.feature || prod.caracteristica || null,
               medidas: prod.medidas || prod.measures || null,
               stock: Number(prod.stock || 0),
               cost: Number(prod.cost || prod.unitCost || 0),
@@ -884,6 +960,62 @@ export function StoreProvider({ children }) {
       setExpenses(prev => prev.filter(e => e.id !== id));
     },
   };
+
+  // Sincronizar clientes a Firestore automáticamente cuando cambian sales o fiados
+  useEffect(() => {
+    if (import.meta.env.VITE_USE_FIRESTORE !== 'true') return;
+    let mounted = true
+    ;(async () => {
+      try {
+        if (!mounted) return
+        await actions.syncClientsToFirestore()
+      } catch (e) { console.warn('syncClientsToFirestore effect failed', e) }
+    })()
+    return () => { mounted = false }
+  }, [sales, fiados])
+
+  // Sincronizar productos a Firestore automáticamente cuando cambian products
+  useEffect(() => {
+    if (import.meta.env.VITE_USE_FIRESTORE !== 'true') return;
+    let mounted = true
+    ;(async () => {
+      try {
+        if (!mounted) return
+        await actions.syncProductsToFirestore()
+      } catch (e) { console.warn('syncProductsToFirestore effect failed', e) }
+    })()
+    return () => { mounted = false }
+  }, [products])
+
+  // Backfill product 'caracteristica' into existing sales' item snapshots when products update
+  useEffect(() => {
+    try {
+      if (!Array.isArray(products) || !Array.isArray(sales)) return
+      let changed = false
+      const next = (sales || []).map(sale => {
+        if (!Array.isArray(sale.items)) return sale
+        const newItems = sale.items.map(item => {
+          try {
+            const hasFeature = item && ((item.caracteristica) || (item.productSnapshot && item.productSnapshot.caracteristica))
+            if (hasFeature) return item
+            const prodId = item && (item.id || (item.productSnapshot && item.productSnapshot.id))
+            const prod = products.find(p => String(p.id) === String(prodId))
+            if (prod && prod.caracteristica) {
+              changed = true
+              const newSnapshot = item.productSnapshot ? { ...item.productSnapshot, caracteristica: prod.caracteristica } : (item.productSnapshot = { caracteristica: prod.caracteristica })
+              return { ...item, caracteristica: item.caracteristica || prod.caracteristica, productSnapshot: newSnapshot }
+            }
+            return item
+          } catch (e) { return item }
+        })
+        return { ...sale, items: newItems }
+      })
+      if (changed) {
+        setSales(next)
+        console.info('[StoreContext] backfilled caracteristica into sales items')
+      }
+    } catch (e) { /* ignore */ }
+  }, [products, sales])
 
   return (
     <StoreContext.Provider value={{

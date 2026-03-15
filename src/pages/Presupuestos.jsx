@@ -93,7 +93,10 @@ export default function Presupuestos(){
       observaciones: observaciones
     }
     const saved = actions.addPresupuesto(pres)
-    alert('Presupuesto guardado: ' + saved.id)
+    if (import.meta.env.VITE_USE_FIRESTORE === 'true') {
+      import('../services/firestoreService').then(m => m.saveBudget(saved || pres)).catch(e => console.warn('saveBudget failed', e))
+    }
+    alert('Presupuesto guardado: ' + (saved && saved.id ? saved.id : pres.id))
   }
 
   // Funciones de la calculadora integrada

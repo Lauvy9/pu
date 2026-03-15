@@ -14,6 +14,8 @@ import {
   Legend,
 } from 'chart.js';
 import { Bar, Line, Doughnut } from 'react-chartjs-2';
+import { setDocWithId, getById } from '../firebase/firestoreHelpers'
+import { auth } from '../firebase/firebase'
 
 // Registrar componentes de Chart.js
 ChartJS.register(
@@ -43,6 +45,8 @@ export default function ReportsProfesional() {
     date: new Date().toISOString().split('T')[0],
     businessUnit: 'sin_especificar'
   });
+  const [saveStatus, setSaveStatus] = React.useState(null)
+  const [storedReport, setStoredReport] = useState(null)
 
 
   // Calcular datos para el período seleccionado
@@ -90,15 +94,15 @@ export default function ReportsProfesional() {
 
   // Datos para gráficos
   const chartData = useMemo(() => {
-    // Gráfico de ventas por día
-    const salesByDay = reportData.sales.reduce((acc, sale) => {
+    // Gráfico de ventas por día (usa datos de Firestore cuando están disponibles)
+    const salesByDay = (usedReportData.sales || []).reduce((acc, sale) => {
       const date = new Date(sale.date).toLocaleDateString('es-ES');
       acc[date] = (acc[date] || 0) + Number(sale.total || 0);
       return acc;
     }, {});
 
     // Gráfico de gastos por categoría
-    const expensesByCategory = reportData.expenses.reduce((acc, expense) => {
+    const expensesByCategory = (usedReportData.expenses || []).reduce((acc, expense) => {
       acc[expense.category] = (acc[expense.category] || 0) + Number(expense.amount || expense.monto || 0);
       return acc;
     }, {});
@@ -140,10 +144,10 @@ export default function ReportsProfesional() {
           {
             label: 'Resumen Financiero',
             data: [
-              reportData.totalSales,
-              reportData.costOfGoodsSold,
-              reportData.operatingExpenses,
-              reportData.netProfit
+              usedReportData.totalSales,
+              usedReportData.costOfGoodsSold,
+              usedReportData.operatingExpenses,
+              usedReportData.netProfit
             ],
             backgroundColor: [
               'rgba(75, 192, 192, 0.8)',
@@ -155,7 +159,117 @@ export default function ReportsProfesional() {
         ],
       }
     };
-  }, [reportData]);
+  }, [usedReportData]);
+
+  // Sincronizar resumen del reporte a Firestore cuando cambian totales o rango
+  React.useEffect(() => {
+    if (import.meta.env.VITE_USE_FIRESTORE !== 'true') return;
+
+    (async () => {
+      try {
+        const cleanDate = (s) => String(s || '').replace(/[^0-9-]/g,'')
+        const docId = `report_${cleanDate(dateRange.start)}_${cleanDate(dateRange.end)}`
+
+        const user = auth && auth.currentUser ? auth.currentUser : null
+        const payload = {
+          dateRange,
+          totals: {
+            totalSales: reportData.totalSales,
+            costOfGoodsSold: reportData.costOfGoodsSold,
+            operatingExpenses: reportData.operatingExpenses,
+            netProfit: reportData.netProfit,
+            profitMargin: reportData.profitMargin
+          },
+          counts: {
+            salesCount: Array.isArray(reportData.sales) ? reportData.sales.length : 0,
+            expensesCount: Array.isArray(reportData.expenses) ? reportData.expenses.length : 0
+          },
+          details: {
+            sales: Array.isArray(reportData.sales) ? reportData.sales : [],
+            expenses: Array.isArray(reportData.expenses) ? reportData.expenses : []
+          },
+          createdAt: new Date().toISOString(),
+          source: 'client',
+          userId: user ? user.uid : null,
+          lastUpdatedBy: user ? (user.email || user.displayName || null) : null
+        }
+
+        // Estimar tamaño del documento
+        const approxSize = JSON.stringify(payload).length
+        console.log('[Reports] saving report', docId, 'approxSize:', approxSize)
+        const MAX_DOC_BYTES = 900000 // margen bajo 1MB
+
+        if (approxSize > MAX_DOC_BYTES) {
+          console.log('[Reports] payload too large, storing summary and subcollections')
+          // Guardar solo resumen en el documento principal y mover arrays a subcolecciones
+          const summary = { ...payload, details: undefined, bigDetailsStoredAsSubcollections: true }
+          await setDocWithId('reportes', docId, summary)
+
+          console.log('[Reports] saved summary doc', docId)
+
+          // Guardar ventas en `reportes/{docId}/sales`
+          const salesArr = Array.isArray(payload.details.sales) ? payload.details.sales : []
+          let savedSales = 0
+          for (const s of salesArr) {
+            const sid = String(s.id || `sale_${Date.now().toString()}_${Math.random().toString(36).slice(2,8)}`)
+            try { await setDocWithId(`reportes/${docId}/sales`, sid, s); savedSales++ } catch(e){ console.warn('save sale subdoc failed', e) }
+          }
+          console.log('[Reports] saved sales subdocs:', savedSales)
+
+          // Guardar expenses en `reportes/{docId}/expenses`
+          const expArr = Array.isArray(payload.details.expenses) ? payload.details.expenses : []
+          let savedEx = 0
+          for (const ex of expArr) {
+            const eid = String(ex.id || `exp_${Date.now().toString()}_${Math.random().toString(36).slice(2,8)}`)
+            try { await setDocWithId(`reportes/${docId}/expenses`, eid, ex); savedEx++ } catch(e){ console.warn('save expense subdoc failed', e) }
+          }
+          console.log('[Reports] saved expenses subdocs:', savedEx)
+        } else {
+          // Guardar todo en un solo documento (actualiza si existe)
+          await setDocWithId('reportes', docId, payload)
+          console.log('[Reports] saved report document', docId)
+        }
+      } catch (err) {
+        console.warn('Error saving report to Firestore', err)
+      }
+    })()
+  }, [reportData.totalSales, reportData.costOfGoodsSold, reportData.operatingExpenses, reportData.netProfit, reportData.profitMargin, dateRange.start, dateRange.end, reportData.sales, reportData.expenses]);
+
+  // Cargar reporte guardado en Firestore (si existe) para el rango seleccionado
+  React.useEffect(() => {
+    if (import.meta.env.VITE_USE_FIRESTORE !== 'true') return;
+    (async () => {
+      try {
+        const cleanDate = (s) => String(s || '').replace(/[^0-9-]/g,'')
+        const docId = `report_${cleanDate(dateRange.start)}_${cleanDate(dateRange.end)}`
+        console.log('[Reports] fetching stored report', docId)
+        const doc = await getById('reportes', docId)
+        if (doc) {
+          console.log('[Reports] loaded stored report', docId)
+          setStoredReport(doc)
+        } else {
+          setStoredReport(null)
+        }
+      } catch (err) {
+        console.warn('[Reports] failed to load stored report', err)
+      }
+    })()
+  }, [dateRange.start, dateRange.end]);
+
+  // Usar los datos del reporte guardado si existen, sino los calculados en memoria
+  const usedReportData = React.useMemo(() => {
+    if (!storedReport) return reportData
+    const totals = storedReport.totals || {}
+    return {
+      totalSales: totals.totalSales || 0,
+      costOfGoodsSold: totals.costOfGoodsSold || 0,
+      operatingExpenses: totals.operatingExpenses || 0,
+      netProfit: totals.netProfit || 0,
+      profitMargin: totals.profitMargin || 0,
+      sales: (storedReport.details && Array.isArray(storedReport.details.sales)) ? storedReport.details.sales : (reportData.sales || []),
+      expenses: (storedReport.details && Array.isArray(storedReport.details.expenses)) ? storedReport.details.expenses : (reportData.expenses || [])
+    }
+  }, [storedReport, reportData])
 
   // Opciones de gráficos
   const chartOptions = {
@@ -175,6 +289,58 @@ export default function ReportsProfesional() {
       },
     },
   };
+
+  // Guardar reporte manual (botón de diagnóstico)
+  const saveReportNow = async () => {
+    setSaveStatus('saving')
+    if (import.meta.env.VITE_USE_FIRESTORE !== 'true') {
+      setSaveStatus('firestore-disabled')
+      return
+    }
+    try {
+      const cleanDate = (s) => String(s || '').replace(/[^0-9-]/g,'')
+      const docId = `report_${cleanDate(dateRange.start)}_${cleanDate(dateRange.end)}`
+      const user = auth && auth.currentUser ? auth.currentUser : null
+      const payload = {
+        dateRange,
+        totals: {
+          totalSales: reportData.totalSales,
+          costOfGoodsSold: reportData.costOfGoodsSold,
+          operatingExpenses: reportData.operatingExpenses,
+          netProfit: reportData.netProfit,
+          profitMargin: reportData.profitMargin
+        },
+        counts: {
+          salesCount: Array.isArray(reportData.sales) ? reportData.sales.length : 0,
+          expensesCount: Array.isArray(reportData.expenses) ? reportData.expenses.length : 0
+        },
+        details: {
+          sales: Array.isArray(reportData.sales) ? reportData.sales : [],
+          expenses: Array.isArray(reportData.expenses) ? reportData.expenses : []
+        },
+        createdAt: new Date().toISOString(),
+        source: 'client',
+        userId: user ? user.uid : null,
+        lastUpdatedBy: user ? (user.email || user.displayName || null) : null
+      }
+
+      const approxSize = JSON.stringify(payload).length
+      const MAX_DOC_BYTES = 900000
+      if (approxSize > MAX_DOC_BYTES) {
+        const summaryDoc = { ...payload, details: undefined, bigDetailsStoredAsSubcollections: true }
+        await setDocWithId('reportes', docId, summaryDoc)
+        setStoredReport(summaryDoc)
+        setSaveStatus('saved-summary')
+      } else {
+        await setDocWithId('reportes', docId, payload)
+        setStoredReport(payload)
+        setSaveStatus('saved')
+      }
+    } catch (e) {
+      console.warn('saveReportNow failed', e)
+      setSaveStatus('error')
+    }
+  }
 
   // PDF export removed from professional reports view per request
 
@@ -284,10 +450,10 @@ export default function ReportsProfesional() {
           <div className="card">
             <h3 className="seccion-titulo">Métricas Rápidas</h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <div>
+                  <div>
                 <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Ventas Totales</div>
                 <div style={{ fontSize: '16px', fontWeight: '600' }}>
-                  {formatCurrency(reportData.totalSales)}
+                  {formatCurrency(usedReportData.totalSales)}
                 </div>
               </div>
               <div>
@@ -295,9 +461,9 @@ export default function ReportsProfesional() {
                 <div style={{ 
                   fontSize: '16px', 
                   fontWeight: '600',
-                  color: reportData.netProfit >= 0 ? '#058796ff' : '#dc2626'
+                  color: usedReportData.netProfit >= 0 ? '#058796ff' : '#dc2626'
                 }}>
-                  {formatCurrency(reportData.netProfit)}
+                  {formatCurrency(usedReportData.netProfit)}
                 </div>
               </div>
               <div>
@@ -305,9 +471,9 @@ export default function ReportsProfesional() {
                 <div style={{ 
                   fontSize: '16px', 
                   fontWeight: '600',
-                  color: reportData.profitMargin > 20 ? '#059694ff' : '#dc2626'
+                  color: usedReportData.profitMargin > 20 ? '#059694ff' : '#dc2626'
                 }}>
-                  {reportData.profitMargin.toFixed(1)}%
+                  {usedReportData.profitMargin.toFixed(1)}%
                 </div>
               </div>
             </div>
@@ -413,28 +579,28 @@ export default function ReportsProfesional() {
                   <div className="grid-metrics">
                     <div className="metric">
                       <div className="metric-title">Ventas Totales</div>
-                      <div className="metric-value">
-                          {formatCurrency(reportData.totalSales)}
-                        </div>
+                          <div className="metric-value">
+                              {formatCurrency(usedReportData.totalSales)}
+                            </div>
                     </div>
                     <div className="metric">
                       <div className="metric-title">Costo Mercadería</div>
                       <div className="metric-value">
-                        {formatCurrency(reportData.costOfGoodsSold)}
+                        {formatCurrency(usedReportData.costOfGoodsSold)}
                       </div>
                     </div>
                     <div className="metric">
                       <div className="metric-title">Gastos Operativos</div>
                       <div className="metric-value">
-                        {formatCurrency(reportData.operatingExpenses)}
+                        {formatCurrency(usedReportData.operatingExpenses)}
                       </div>
                     </div>
                     <div className="metric">
                       <div className="metric-title">Ganancia Neta</div>
                       <div className="metric-value" style={{ 
-                        color: reportData.netProfit >= 0 ? '#8f9605ff' : '#dc2626' 
+                        color: usedReportData.netProfit >= 0 ? '#8f9605ff' : '#dc2626' 
                       }}>
-                        {formatCurrency(reportData.netProfit)}
+                        {formatCurrency(usedReportData.netProfit)}
                       </div>
                     </div>
                   </div>
@@ -491,7 +657,7 @@ export default function ReportsProfesional() {
                         </tr>
                       </thead>
                       <tbody>
-                        {reportData.sales.map(sale => (
+                        {usedReportData.sales.map(sale => (
                           <tr key={sale.id}>
                             <td>{new Date(sale.date).toLocaleDateString('es-ES')}</td>
                             <td>{sale.items?.map(item => item.name).join(', ') || 'Varios productos'}</td>
@@ -515,7 +681,7 @@ export default function ReportsProfesional() {
                         </tr>
                       </thead>
                       <tbody>
-                        {reportData.expenses.map(expense => (
+                        {usedReportData.expenses.map(expense => (
                           <tr key={expense.id}>
                             <td>{new Date(expense.date).toLocaleDateString('es-ES')}</td>
                             <td>{expense.description}</td>

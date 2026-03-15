@@ -3,6 +3,12 @@ import { useStore } from '../context/StoreContext'
 import { isPaymentOnOrBeforeDue, isAfterDue } from '../utils/dateHelpers'
 import { exportFiadosPDF } from '../utils/fiadosPdfExport'
 import { formatCurrency } from '../utils/helpers'
+import { saveFiado } from '../services/firestoreService'
+
+// helper para persistir sin bloquear la UI
+async function awaitSaveFiado(obj) {
+  try { await saveFiado(obj) } catch (e) { console.warn('saveFiado error', e) }
+}
 
 const Fiados = () => {
   const { bankAccounts, actions, fiados, company, sales } = useStore()
@@ -31,7 +37,11 @@ const Fiados = () => {
       return setToast({ type: 'warning', text: 'Completa los campos obligatorios (nombre, DNI, teléfono)' });
 
     const toAdd = { ...nuevoCliente, id: Date.now(), deuda: Number(nuevoCliente.deuda || 0), movimientos: nuevoCliente.movimientos || [], credit: 0 }
-    actions.addFiadoClient(toAdd)
+    const added = actions.addFiadoClient(toAdd)
+    // Persistir en Firestore si está habilitado
+    if (import.meta.env.VITE_USE_FIRESTORE === 'true') {
+      awaitSaveFiado(added || toAdd).catch(e => console.warn('saveFiado failed', e))
+    }
     setNuevoCliente({ nombre: "", dni: "", telefono: "", direccion: "", limite: "", deuda: 0, movimientos: [], credit: 0 });
     setToast({ type: 'success', text: 'Cliente agregado' })
   };
@@ -41,9 +51,14 @@ const Fiados = () => {
     const client = clientes[clientIndex]
     if (!client) return
     const entry = { id: Date.now(), amount: Number(amount), dateTaken: dateTaken || new Date().toISOString().slice(0,10), dueDate: dueDate || null, note: note || '', payments: [] }
-    actions.addFiadoEntry(client.id, entry)
+    const res = actions.addFiadoEntry(client.id, entry)
+    // persist updated client document
+    if (import.meta.env.VITE_USE_FIRESTORE === 'true') {
+      const updated = (fiados || []).find(c => c.id === client.id)
+      awaitSaveFiado(updated || { ...client, movimientos: [...(client.movimientos||[]), entry] }).catch(e => console.warn('saveFiado failed', e))
+    }
     setToast({ type: 'success', text: `Entrada de deuda agregada.` })
-    return entry
+    return res || entry
   }
 
   // Registrar un pago sobre una entrada específica
@@ -52,8 +67,13 @@ const Fiados = () => {
     if (!client) return { ok:false, error: 'cliente not found' }
     const p = { amount: Number(amount), method: method || 'efectivo', accountId: accountId || null, date: new Date().toISOString(), id: Date.now() }
     const res = actions.registerFiadoPayment(client.id, entryId, p)
-    if (res && res.ok) setToast({ type: 'success', text: 'Pago registrado' })
-    else setToast({ type: 'error', text: 'Error al registrar pago' })
+    if (res && res.ok) {
+      setToast({ type: 'success', text: 'Pago registrado' })
+      if (import.meta.env.VITE_USE_FIRESTORE === 'true') {
+        const updated = (fiados || []).find(c => c.id === client.id)
+        awaitSaveFiado(updated || client).catch(e => console.warn('saveFiado failed', e))
+      }
+    } else setToast({ type: 'error', text: 'Error al registrar pago' })
     return res
   }
 
@@ -61,19 +81,31 @@ const Fiados = () => {
   const updateEntry = (clientIndex, entryId, patch) => {
     const client = clientes[clientIndex]
     if (!client) return
-    actions.updateFiadoEntry(client.id, entryId, patch)
+    const res = actions.updateFiadoEntry(client.id, entryId, patch)
+    if (import.meta.env.VITE_USE_FIRESTORE === 'true') {
+      const updated = (fiados || []).find(c => c.id === client.id)
+      awaitSaveFiado(updated || client).catch(e => console.warn('saveFiado failed', e))
+    }
   }
 
   const toggleEntryActive = (clientIndex, entryId) => {
     const client = clientes[clientIndex]
     if (!client) return
-    actions.toggleFiadoEntryActive(client.id, entryId)
+    const res = actions.toggleFiadoEntryActive(client.id, entryId)
+    if (import.meta.env.VITE_USE_FIRESTORE === 'true') {
+      const updated = (fiados || []).find(c => c.id === client.id)
+      awaitSaveFiado(updated || client).catch(e => console.warn('saveFiado failed', e))
+    }
   }
 
   const removeEntry = (clientIndex, entryId) => {
     const client = clientes[clientIndex]
     if (!client) return
-    actions.removeFiadoEntry(client.id, entryId)
+    const res = actions.removeFiadoEntry(client.id, entryId)
+    if (import.meta.env.VITE_USE_FIRESTORE === 'true') {
+      const updated = (fiados || []).find(c => c.id === client.id)
+      awaitSaveFiado(updated || client).catch(e => console.warn('saveFiado failed', e))
+    }
   }
 
   // Component: formulario para agregar nueva entrada de deuda
@@ -177,7 +209,11 @@ const Fiados = () => {
     if (editingClientIndex == null) return
     const client = clientes[editingClientIndex]
     if (!client) return
-    actions.updateFiadoClient(client.id, editingClient)
+    const res = actions.updateFiadoClient(client.id, editingClient)
+    if (import.meta.env.VITE_USE_FIRESTORE === 'true') {
+      const updated = (fiados || []).find(c => c.id === client.id)
+      awaitSaveFiado(updated || editingClient).catch(e => console.warn('saveFiado failed', e))
+    }
     setEditingClientIndex(null)
     setEditingClient(null)
   }

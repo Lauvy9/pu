@@ -9,23 +9,42 @@
 .sales-grid{
   display: grid;
   gap: 16px;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: 2fr 1fr; /* Left column wider for Nueva venta / productos */
   align-items: start;
 }
 
-@media (max-width: 768px){
-  .sales-grid{ grid-template-columns: repeat(2, 1fr); }
+@media (max-width: 1024px){
+  .sales-grid{ grid-template-columns: 1.5fr 1fr; }
 }
-@media (max-width: 480px){
+@media (max-width: 768px){
   .sales-grid{ grid-template-columns: 1fr; }
 }
 
 .sales-card{ background: var(--card-bg); color: var(--text-color); border-radius: 10px; padding: 12px; box-shadow: 0 6px 14px rgba(0,0,0,0.06); border: 1px solid var(--soft-border); }
 
-.sales-table-wrapper{ background: var(--card-bg); color: var(--text-color); border-radius: 10px; padding: 8px; box-shadow: 0 6px 14px rgba(0,0,0,0.06); border: 1px solid var(--soft-border); overflow-x: auto; }
+.sales-table-wrapper{ background: var(--card-bg); color: var(--text-color); border-radius: 10px; padding: 8px; box-shadow: 0 6px 14px rgba(0,0,0,0.06); border: 1px solid var(--soft-border); overflow-x: auto; -webkit-overflow-scrolling: touch; }
 
-.sales-table{ width: 100%; border-collapse: collapse; min-width: 880px; }
-.sales-table th, .sales-table td{ padding: 10px 12px; border-bottom: 1px solid rgba(0,0,0,0.04); text-align: left; vertical-align: middle; color: var(--text-color); }
+.sales-table{ width: 100%; border-collapse: collapse; min-width: 1200px; table-layout: auto; }
+.sales-table th, .sales-table td{ padding: 12px 14px; border-bottom: 1px solid rgba(0,0,0,0.04); text-align: left; vertical-align: middle; color: var(--text-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Full viewport width card for Entregas y Pagos so table can display without horizontal truncation */
+.sales-card.fullwidth{
+  width: calc(100vw - 48px);
+  max-width: none;
+  margin-left: calc(-50vw + 50%);
+  box-sizing: border-box;
+  padding: 12px;
+  border-radius: 10px;
+}
+.sales-card.fullwidth .sales-table{ min-width: 0; }
+
+/* Keep single-line cells and rely on horizontal scroll for visibility (like Clientes table) */
+@media (max-width: 1200px) {
+  .sales-table th, .sales-table td{ padding: 10px 12px; font-size: 0.95rem; }
+}
+@media (max-width: 900px) {
+  .sales-table th, .sales-table td{ padding: 8px 10px; font-size: 0.92rem; }
+}
 .sales-table thead th{ font-weight:700; font-size: 0.95rem; }
 .sales-table tbody tr{ transition: background-color 0.25s ease, transform 0.15s ease; }
 .sales-table tbody tr:hover{ transform: translateY(-2px); }
@@ -60,3 +79,75 @@
 /* Descripción secundaria para items (producto/servicio) */
 .item-desc{ color: #6c6c6c; font-size: 0.82rem; margin-left: 6px; margin-top: 2px; }
 .item-meta{ color: #6c6c6c; font-size: 0.82rem; margin-left: 6px; margin-top: 2px; font-weight:600 }
+
+/* ===== TABLA ENTREGAS Y PAGOS MEJORADA ===== */
+
+.sales-card.fullwidth{
+  width: 100%;
+  margin-left: 0;
+  padding: 14px;
+  overflow: visible; /* allow inner wrapper to scroll */
+}
+
+.sales-card.fullwidth .sales-table{
+  width: 100%;
+  min-width: 1200px; /* restore wide table to enable horizontal scrolling */
+  table-layout: auto;
+  border-collapse: collapse;
+}
+
+/* Ensure the inner wrapper shows a horizontal scrollbar */
+.sales-card.fullwidth .sales-table-wrapper{
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.sales-card.fullwidth .sales-table thead th{
+  font-weight: 700;
+  font-size: 0.9rem;
+  background: #f5f5f5;
+  border-bottom: 2px solid rgba(0,0,0,0.08);
+}
+
+.sales-card.fullwidth .sales-table th,
+.sales-card.fullwidth .sales-table td{
+  padding: 10px;
+  white-space: nowrap; /* prevent breaking so scrollbar is used */
+  word-break: normal;
+  vertical-align: middle;
+  font-size: 0.92rem;
+}
+
+.sales-card.fullwidth .sales-table tbody tr:hover{
+  background: rgba(0,0,0,0.04);
+}
+
+.sales-card.fullwidth .sales-table tbody tr:nth-child(even){
+  background:#fafafa;
+}
+
+.sales-card.fullwidth .sales-actions{
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+}
+
+/* Keep numeric columns (Pago / Restante) on a single line */
+.sales-card.fullwidth .sales-table td.amount,
+.sales-card.fullwidth .sales-table td.money,
+.sales-card.fullwidth .sales-table td:nth-last-child(2),
+.sales-card.fullwidth .sales-table td:last-child{
+  white-space: nowrap;
+  word-break: normal;
+  overflow-wrap: normal;
+  font-weight: 600;
+  text-align: right;
+}
+
+.sales-card.fullwidth .sales-table th:nth-last-child(2),
+.sales-card.fullwidth .sales-table th:last-child{
+  white-space: nowrap;
+  word-break: normal;
+  overflow-wrap: normal;
+  text-align: right;
+}

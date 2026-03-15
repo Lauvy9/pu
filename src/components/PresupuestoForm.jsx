@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useStore } from '../context/StoreContext'
 import { formatCurrency } from '../utils/helpers'
+import { saveBudget } from '../services/firestoreService'
 
 export default function PresupuestoForm({ inline } = {}){
   const { products = [], bankAccounts = [], presupuestos = [], actions } = useStore()
@@ -68,6 +69,10 @@ export default function PresupuestoForm({ inline } = {}){
       // Use the store action for presupuestos so it doesn't create transactions or affect stock
       const res = await actions.addPresupuesto(pres)
       alert('Presupuesto creado ' + (res && res.id ? res.id : ''))
+      // persist to Firestore if enabled (non-blocking)
+      if (import.meta.env.VITE_USE_FIRESTORE === 'true') {
+        try { saveBudget(res || pres).catch(e => console.warn('saveBudget failed', e)) } catch(e){ console.warn('saveBudget error', e) }
+      }
       // clear
       setProductConcept(''); setBudgetItems([]); setDiscountPct(0); setBudgetObservations(''); setBudgetCustomerName(''); setBudgetCustomerPhone(''); setBudgetCustomerEmail(''); setBudgetCustomerAddress('');
     }catch(e){ console.error(e); alert('Error guardando presupuesto') }

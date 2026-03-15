@@ -2,12 +2,13 @@ import React, { useState, useEffect } from "react";
 import { db } from "../firebase";
 import {
   collection,
-  addDoc,
   getDocs,
+  addDoc,
   updateDoc,
   deleteDoc,
   doc
 } from "firebase/firestore";
+import { saveProvider } from '../services/firestoreService'
 
 export default function Providers() {
   const [providers, setProviders] = useState([]);
@@ -37,7 +38,11 @@ export default function Providers() {
       await updateDoc(ref, newProvider);
       setEditingId(null);
     } else {
-      await addDoc(collection(db, "proveedores"), newProvider);
+      if (import.meta.env.VITE_USE_FIRESTORE === 'true') {
+        await saveProvider(newProvider)
+      } else {
+        await addDoc(collection(db, "proveedores"), newProvider);
+      }
     }
     setNewProvider({ nombre: "", telefono: "", email: "", direccion: "" });
     fetchProviders();

@@ -27,6 +27,8 @@ import {
 import UltimasTransacciones from '../components/UltimasTransacciones'
 import Historial from '../components/Historial'
 import FormGastoOperativo from '../components/Gastos/FormGastoOperativo'
+import { setDocWithId, getById } from '../firebase/firestoreHelpers'
+import { auth } from '../firebase/firebase'
 
 /**
  * KPI Cards Component
@@ -214,25 +216,28 @@ function BusinessUnitSection({ title, unit, transactions, products, dateRange })
  */
 export default function ReportesProfesional(){
   const { sales = [], transactions = [], products = [] } = useStore()
+  const [storedReport, setStoredReport] = useState(null)
   const [dateRange, setDateRange] = useState({
     start: new Date(new Date().setDate(new Date().getDate() - 30)).toISOString().slice(0, 10),
     end: new Date().toISOString().slice(0, 10),
   })
 
   // Cálculos de reportes (con filtro de fechas)
+  const usedTransactions = (storedReport && storedReport.details && Array.isArray(storedReport.details.transactions)) ? storedReport.details.transactions : transactions
+
   const totalSales = useMemo(
-    () => calculateTotalSales(transactions, dateRange),
-    [transactions, dateRange]
+    () => calculateTotalSales(usedTransactions, dateRange),
+    [usedTransactions, dateRange]
   )
 
   const totalExpenses = useMemo(
-    () => calculateTotalExpenses(transactions, dateRange),
-    [transactions, dateRange]
+    () => calculateTotalExpenses(usedTransactions, dateRange),
+    [usedTransactions, dateRange]
   )
 
   const netProfit = useMemo(
-    () => calculateNetProfit(transactions, dateRange),
-    [transactions, dateRange]
+    () => calculateNetProfit(usedTransactions, dateRange),
+    [usedTransactions, dateRange]
   )
 
   const pendingDebt = useMemo(
@@ -242,13 +247,13 @@ export default function ReportesProfesional(){
 
   // Gráficos
   const topProducts = useMemo(
-    () => getTopProductsBySales(transactions, products, 5, dateRange),
-    [transactions, products, dateRange]
+    () => getTopProductsBySales(usedTransactions, products, 5, dateRange),
+    [usedTransactions, products, dateRange]
   )
 
   const expensesByCategory = useMemo(
-    () => getExpensesByCategory(transactions, dateRange),
-    [transactions, dateRange]
+    () => getExpensesByCategory(usedTransactions, dateRange),
+    [usedTransactions, dateRange]
   )
 
   const lowStockItems = useMemo(
@@ -257,19 +262,97 @@ export default function ReportesProfesional(){
   )
 
   const profitByUnit = useMemo(
-    () => getProfitByBusinessUnit(transactions, dateRange),
-    [transactions, dateRange]
+    () => getProfitByBusinessUnit(usedTransactions, dateRange),
+    [usedTransactions, dateRange]
   )
 
   const salesByDay = useMemo(
-    () => getSalesByDay(transactions, dateRange),
-    [transactions, dateRange]
+    () => getSalesByDay(usedTransactions, dateRange),
+    [usedTransactions, dateRange]
   )
 
   const salesVsExpenses = useMemo(
-    () => getSalesVsExpenses(transactions, dateRange),
-    [transactions, dateRange]
+    () => getSalesVsExpenses(usedTransactions, dateRange),
+    [usedTransactions, dateRange]
   )
+
+  // Cargar reporte guardado en Firestore para el rango seleccionado
+  React.useEffect(() => {
+    if (import.meta.env.VITE_USE_FIRESTORE !== 'true') return;
+    (async () => {
+      try {
+        const cleanDate = (s) => String(s || '').replace(/[^0-9-]/g,'')
+        const docId = `report_${cleanDate(dateRange.start)}_${cleanDate(dateRange.end)}`
+        const doc = await getById('reportes', docId)
+        if (doc) setStoredReport(doc)
+        else setStoredReport(null)
+      } catch (e) {
+        console.warn('[ReportesProfesional] load failed', e)
+      }
+    })()
+  }, [dateRange.start, dateRange.end, transactions])
+
+  // Guardar automáticamente el reporte en Firestore cuando cambian datos o rango
+  React.useEffect(() => {
+    if (import.meta.env.VITE_USE_FIRESTORE !== 'true') return;
+    (async () => {
+      try {
+        const cleanDate = (s) => String(s || '').replace(/[^0-9-]/g,'')
+        const docId = `report_${cleanDate(dateRange.start)}_${cleanDate(dateRange.end)}`
+
+        // Filtrar transacciones para el período
+        const start = new Date(dateRange.start); start.setHours(0,0,0,0)
+        const end = new Date(dateRange.end); end.setHours(23,59,59,999)
+        const periodTx = (transactions || []).filter(t => {
+          const d = new Date(t.fecha || t.date || t.createdAt || t.timestamp)
+          return !isNaN(d) && d >= start && d <= end
+        })
+
+        const user = auth && auth.currentUser ? auth.currentUser : null
+        const payload = {
+          dateRange,
+          totals: {
+            totalSales: totalSales || 0,
+            totalExpenses: totalExpenses || 0,
+            netProfit: netProfit || 0,
+            pendingDebt: pendingDebt || 0
+          },
+          counts: {
+            transactionsCount: Array.isArray(periodTx) ? periodTx.length : 0
+          },
+          details: {
+            transactions: periodTx
+          },
+          createdAt: new Date().toISOString(),
+          source: 'client',
+          userId: user ? user.uid : null,
+          lastUpdatedBy: user ? (user.email || user.displayName || null) : null
+        }
+
+        const approxSize = JSON.stringify(payload).length
+        const MAX_DOC_BYTES = 900000
+        if (approxSize > MAX_DOC_BYTES) {
+          // store summary and avoid huge doc
+          const summary = { ...payload, details: undefined, bigDetailsStoredAsSubcollections: true }
+          await setDocWithId('reportes', docId, summary)
+          setStoredReport(summary)
+          // store subdocs
+          const txArr = Array.isArray(payload.details.transactions) ? payload.details.transactions : []
+          for (const tx of txArr) {
+            const tid = String(tx.id || `tx_${Date.now()}_${Math.random().toString(36).slice(2,8)}`)
+            try { await setDocWithId(`reportes/${docId}/transactions`, tid, tx) } catch(e){ console.warn('[ReportesProfesional] save tx subdoc failed', e) }
+          }
+        } else {
+          await setDocWithId('reportes', docId, payload)
+          setStoredReport(payload)
+        }
+        console.log('[ReportesProfesional] report saved', docId)
+      } catch (e) {
+        console.warn('[ReportesProfesional] auto-save failed', e)
+      }
+    })()
+  }, [totalSales, totalExpenses, netProfit, pendingDebt, dateRange.start, dateRange.end, transactions])
+
 
 
   // Helpers para rango rápido
@@ -394,7 +477,10 @@ export default function ReportesProfesional(){
           </section>
 
           {/* 2️⃣ KPIs */}
-          <KPISection totalSales={totalSales} totalExpenses={totalExpenses} netProfit={netProfit} pendingDebt={pendingDebt} />
+          {(() => {
+            const usedTotals = (storedReport && storedReport.totals) ? storedReport.totals : { totalSales, totalExpenses, netProfit, pendingDebt }
+            return <KPISection totalSales={usedTotals.totalSales} totalExpenses={usedTotals.totalExpenses} netProfit={usedTotals.netProfit} pendingDebt={usedTotals.pendingDebt} />
+          })()}
 
           {/* 3️⃣ GRÁFICOS ANALÍTICOS */}
           <section className="card" style={{ marginTop: 20 }}>
