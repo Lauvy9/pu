@@ -4,7 +4,7 @@ import { buildClientsFromSales } from '../utils/clientHelpers'
 import useLocalStorage from '../hooks/useLocalStorage';
 // Firestore client helpers (optional)
 import { setDocWithId, updateDocById } from '../firebase/firestoreHelpers'
-import { doc, deleteDoc } from 'firebase/firestore'
+import { doc, deleteDoc, collection, onSnapshot } from 'firebase/firestore'
 import { db } from '../firebase/firebase'
 import { calculateFinancialData } from '../utils/financeHelpers'
 
@@ -986,6 +986,56 @@ export function StoreProvider({ children }) {
     })()
     return () => { mounted = false }
   }, [products])
+
+  // Suscribirse a Firestore al iniciar la app y mantener el estado local sincronizado
+  useEffect(() => {
+    if (import.meta.env.VITE_USE_FIRESTORE !== 'true') return;
+    let mounted = true;
+
+    const salesCol = collection(db, 'ventas');
+    const productsCol = collection(db, 'products');
+    const clientesCol = collection(db, 'clientes');
+
+    const unsubSales = onSnapshot(salesCol, (snapshot) => {
+      if (!mounted) return;
+      try {
+        const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+        setSales(prev => {
+          try { if (JSON.stringify(prev || []) !== JSON.stringify(data || [])) return data } catch(e){ return data }
+          return prev;
+        });
+      } catch (e) { console.warn('onSnapshot ventas failed', e) }
+    }, (err) => console.warn('ventas onSnapshot error', err));
+
+    const unsubProducts = onSnapshot(productsCol, (snapshot) => {
+      if (!mounted) return;
+      try {
+        const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+        setProducts(prev => {
+          try { if (JSON.stringify(prev || []) !== JSON.stringify(data || [])) return data } catch(e){ return data }
+          return prev;
+        });
+      } catch (e) { console.warn('onSnapshot products failed', e) }
+    }, (err) => console.warn('products onSnapshot error', err));
+
+    const unsubClientes = onSnapshot(clientesCol, (snapshot) => {
+      if (!mounted) return;
+      try {
+        const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+        setFiados(prev => {
+          try { if (JSON.stringify(prev || []) !== JSON.stringify(data || [])) return data } catch(e){ return data }
+          return prev;
+        });
+      } catch (e) { console.warn('onSnapshot clientes failed', e) }
+    }, (err) => console.warn('clientes onSnapshot error', err));
+
+    return () => {
+      mounted = false;
+      try { unsubSales && unsubSales(); } catch(e){}
+      try { unsubProducts && unsubProducts(); } catch(e){}
+      try { unsubClientes && unsubClientes(); } catch(e){}
+    };
+  }, [])
 
   // Backfill product 'caracteristica' into existing sales' item snapshots when products update
   useEffect(() => {
