@@ -5,7 +5,7 @@ import { initializeApp } from "firebase/app"
 import { getAnalytics } from "firebase/analytics"
 
 // Firestore
-import { getFirestore } from "firebase/firestore"
+import { getFirestore, enableIndexedDbPersistence } from "firebase/firestore"
 
 // Authentication
 import { getAuth, GoogleAuthProvider } from "firebase/auth"
@@ -28,3 +28,20 @@ export const analytics = getAnalytics(app)
 export const db = getFirestore(app)
 export const auth = getAuth(app)
 export const provider = new GoogleAuthProvider()
+
+// Enable IndexedDB persistence for offline support (guarded)
+try {
+  enableIndexedDbPersistence(db).then(() => {
+    console.info('🔥 Firestore persistence enabled')
+  }).catch((err) => {
+    if (err.code === 'failed-precondition') {
+      console.warn('Firestore persistence failed: multiple tabs open (failed-precondition)')
+    } else if (err.code === 'unimplemented') {
+      console.warn('Firestore persistence is not available in this browser (unimplemented)')
+    } else {
+      console.warn('Failed to enable Firestore persistence', err)
+    }
+  })
+} catch (e) {
+  console.warn('Error enabling Firestore persistence', e)
+}

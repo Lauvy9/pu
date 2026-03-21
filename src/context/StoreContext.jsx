@@ -8,6 +8,16 @@ import { doc, deleteDoc, collection, onSnapshot } from 'firebase/firestore'
 import { db } from '../firebase/firebase'
 import { calculateFinancialData } from '../utils/financeHelpers'
 
+// Helper: generar IDs únicos (usa crypto.randomUUID cuando esté disponible)
+function makeTxId(suffix) {
+  try {
+    const uid = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : Math.random().toString(36).slice(2,10)
+    return `tx_${Date.now().toString()}_${uid}${suffix ? '_' + String(suffix) : ''}`
+  } catch (e) {
+    return 'tx_' + Date.now().toString() + '_' + Math.floor(Math.random()*1e9) + (suffix ? '_' + String(suffix) : '')
+  }
+}
+
 export const StoreContext = createContext();
 
 export function useStore() {
@@ -40,16 +50,15 @@ export function StoreProvider({ children }) {
   const actions = {
     // PRODUCTOS
     addProduct: (product) => {
-      // Extend addProduct: if product with same name+caracteristica exists => treat as reposicion
+      // Try to find existing product by normalized name+feature
       const exists = (products || []).find(p => String((p.name||'')).trim().toLowerCase() === String((product.name||'')).trim().toLowerCase() && String((p.caracteristica||'')).trim().toLowerCase() === String((product.caracteristica||'')).trim().toLowerCase())
       if (exists) {
-        // It's a reposición: aumentar stock del producto existente
+        // Reposición: aumentar stock del producto existente
         const addedQty = Number(product.stock || 0);
         const newCost = product.cost != null ? Number(product.cost) : exists.cost || 0;
         setProducts(prev => prev.map(p => p.id === exists.id ? { ...p, stock: Number(p.stock || 0) + addedQty, cost: newCost } : p));
-        // Registrar transacción de compra de mercadería (NO es gasto operativo)
         const tx = {
-          id: 'tx_' + Date.now().toString(),
+          id: makeTxId(),
           tipo: 'compra_mercaderia',
           fecha: new Date().toISOString(),
           productoId: exists.id,
@@ -59,13 +68,12 @@ export function StoreProvider({ children }) {
           total: Number(addedQty) * Number(newCost || 0),
           businessUnit: (product.businessUnit || exists.businessUnit) || undefined,
         };
-        // Registrar transacción en historial (NO como gasto operativo)
         setTransactions(prev => [...prev, tx]);
         return exists;
       }
 
-      // Normalizar unidad de negocio para evitar variantes (mayúsculas, acentos)
-      const rawUnit = (product.businessUnit || product.unidad || product.businessUnit || '')
+      // Normalizar unidad de negocio
+      const rawUnit = (product.businessUnit || product.unidad || '')
       const normalizeUnit = (u) => {
         try{
           const s = String(u||'').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '')
@@ -74,6 +82,7 @@ export function StoreProvider({ children }) {
         }catch(e){}
         return undefined
       }
+
       const newProduct = {
         ...product,
         id: product.id || Date.now().toString(),
@@ -82,19 +91,19 @@ export function StoreProvider({ children }) {
       setProducts(prev => [...prev, newProduct]);
       console.info('[StoreContext] addProduct saved locally', String(newProduct.id), 'unit:', newProduct.businessUnit)
 
-      // If Firestore is enabled, sync the newly added product (fire-and-forget)
+      // Persist product in Firestore (fire-and-forget)
       try {
         if (import.meta.env.VITE_USE_FIRESTORE === 'true') {
-          setDocWithId && setDocWithId('products', String(newProduct.id), { ...newProduct, createdAt: new Date().toISOString() })
+          setDocWithId && setDocWithId('productos', String(newProduct.id), { ...newProduct, createdAt: new Date().toISOString() })
             .catch(err => console.warn('Firestore sync addProduct failed', err));
         }
       } catch (e) { /* ignore */ }
 
-      // Registrar transacción tipo 'compra_mercaderia' para el stock inicial (NO es gasto operativo)
+      // Registrar transacción tipo 'compra_mercaderia' para el stock inicial
       const initialQty = Number(product.stock || 0);
       if (initialQty > 0) {
         const tx = {
-          id: 'tx_' + Date.now().toString(),
+          id: makeTxId(),
           tipo: 'compra_mercaderia',
           fecha: new Date().toISOString(),
           productoId: newProduct.id,
@@ -169,7 +178,7 @@ export function StoreProvider({ children }) {
             const added = newStock - prevStock;
             const costoUnit = typeof updates.cost !== 'undefined' ? Number(updates.cost) : Number(existing.cost || 0);
             const tx = {
-              id: 'tx_' + Date.now().toString(),
+              id: makeTxId(),
               tipo: 'compra_mercaderia',
               fecha: new Date().toISOString(),
               productoId: existing.id,
@@ -197,7 +206,8 @@ export function StoreProvider({ children }) {
       // Sync update to Firestore if enabled
       try {
         if (import.meta.env.VITE_USE_FIRESTORE === 'true') {
-          updateDocById && updateDocById('products', String(id), updates).catch(err => console.warn('Firestore sync updateProduct failed', err));
+          // write to unified collection 'productos'
+          updateDocById && updateDocById('productos', String(id), updates).catch(err => console.warn('Firestore sync updateProduct failed', err));
         }
       } catch (e) { /* ignore */ }
     },
@@ -207,7 +217,7 @@ export function StoreProvider({ children }) {
       // Delete from Firestore if enabled
       try {
         if (import.meta.env.VITE_USE_FIRESTORE === 'true') {
-          try { deleteDoc && deleteDoc(doc(db, 'products', String(id))).catch(e=>console.warn('Firestore delete failed', e)) } catch(e){}
+          try { deleteDoc && deleteDoc(doc(db, 'productos', String(id))).catch(e=>console.warn('Firestore delete failed', e)) } catch(e){}
         }
       } catch (e) { /* ignore */ }
     },
@@ -219,7 +229,8 @@ export function StoreProvider({ children }) {
         const arr = Array.isArray(products) ? products : [];
         for (const p of arr) {
           try {
-            await setDocWithId('products', String(p.id), { ...p, syncedAt: new Date().toISOString() })
+            // write to unified collection 'productos'
+            await setDocWithId('productos', String(p.id), { ...p, syncedAt: new Date().toISOString() })
           } catch (err) { console.warn('syncProductsToFirestore: setDoc failed for', p.id, err) }
         }
         return { ok: true };
@@ -324,7 +335,7 @@ export function StoreProvider({ children }) {
           try {
             const isService = String(it.id || '').startsWith('svc_');
             const txItem = {
-              id: 'tx_' + Date.now().toString() + '_' + (isService ? 'svc' : String(it.id)),
+              id: makeTxId(isService ? 'svc' : String(it.id)),
               tipo: 'venta',
               fecha: newSale.date,
               saleId: newSale.id,
@@ -428,7 +439,7 @@ export function StoreProvider({ children }) {
           try {
             const isService = String(it.id || '').startsWith('svc_');
             const txItem = {
-              id: 'tx_' + Date.now().toString() + '_' + (isService ? 'svc' : String(it.id)),
+              id: makeTxId(isService ? 'svc' : String(it.id)),
               tipo: 'venta',
               fecha: newSale.date,
               saleId: newSale.id,
@@ -864,7 +875,7 @@ export function StoreProvider({ children }) {
           try {
             const isService = String(it.id || '').startsWith('svc_');
             const txItem = {
-              id: 'tx_' + Date.now().toString() + '_' + (isService ? 'svc' : String(it.id)),
+              id: makeTxId(isService ? 'svc' : String(it.id)),
               tipo: 'venta',
               fecha: sale.date,
               saleId: sale.id,
@@ -907,7 +918,7 @@ export function StoreProvider({ children }) {
     addTransaction: (tx) => {
       const transaction = {
         ...tx,
-        id: tx.id || ('tx_' + Date.now().toString()),
+        id: tx.id || makeTxId(),
         fecha: tx.fecha || new Date().toISOString(),
       };
       setTransactions(prev => [...prev, transaction]);
@@ -917,7 +928,7 @@ export function StoreProvider({ children }) {
     // helpers específicos (compra / reposicion)
     addPurchaseTransaction: (data) => {
       const tx = {
-        id: data.id || ('tx_' + Date.now().toString()),
+        id: data.id || makeTxId(),
         tipo: 'compra',
         fecha: data.fecha || new Date().toISOString(),
         productoId: data.productoId || null,
@@ -936,7 +947,7 @@ export function StoreProvider({ children }) {
 
     addRepositionTransaction: (data) => {
       const tx = {
-        id: data.id || ('tx_' + Date.now().toString()),
+        id: data.id || makeTxId(),
         tipo: 'reposicion',
         fecha: data.fecha || new Date().toISOString(),
         productoId: data.productoId || null,
@@ -961,31 +972,9 @@ export function StoreProvider({ children }) {
     },
   };
 
-  // Sincronizar clientes a Firestore automáticamente cuando cambian sales o fiados
-  useEffect(() => {
-    if (import.meta.env.VITE_USE_FIRESTORE !== 'true') return;
-    let mounted = true
-    ;(async () => {
-      try {
-        if (!mounted) return
-        await actions.syncClientsToFirestore()
-      } catch (e) { console.warn('syncClientsToFirestore effect failed', e) }
-    })()
-    return () => { mounted = false }
-  }, [sales, fiados])
-
-  // Sincronizar productos a Firestore automáticamente cuando cambian products
-  useEffect(() => {
-    if (import.meta.env.VITE_USE_FIRESTORE !== 'true') return;
-    let mounted = true
-    ;(async () => {
-      try {
-        if (!mounted) return
-        await actions.syncProductsToFirestore()
-      } catch (e) { console.warn('syncProductsToFirestore effect failed', e) }
-    })()
-    return () => { mounted = false }
-  }, [products])
+  // NOTE: automatic syncing effects removed to avoid read/write loops.
+  // Use the actions.syncProductsToFirestore and actions.syncClientsToFirestore
+  // manually when a deliberate sync is required (e.g., admin tools).
 
   // Suscribirse a Firestore al iniciar la app y mantener el estado local sincronizado
   useEffect(() => {
@@ -993,7 +982,7 @@ export function StoreProvider({ children }) {
     let mounted = true;
 
     const salesCol = collection(db, 'ventas');
-    const productsCol = collection(db, 'products');
+    const productsCol = collection(db, 'productos');
     const clientesCol = collection(db, 'clientes');
 
     const unsubSales = onSnapshot(salesCol, (snapshot) => {
