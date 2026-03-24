@@ -1,11 +1,10 @@
 import React from "react";
 import { loginConGoogle } from "../firebase/login";
 
-export default function Login({ onLogin }) {
+export default function Login() {
   const handleLogin = async () => {
     try {
-      const user = await loginConGoogle();
-      onLogin(user);
+      await loginConGoogle(); // 🔥 NO seteamos usuario manualmente
     } catch (error) {
       alert(error.message);
     }
@@ -14,6 +13,7 @@ export default function Login({ onLogin }) {
   return (
     <div style={{ marginTop: "20vh" }}>
       <h2>Iniciar sesión</h2>
+
       <button
         onClick={handleLogin}
         style={{

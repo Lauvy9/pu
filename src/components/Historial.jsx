@@ -31,8 +31,8 @@ export default function Historial(){
               </tr>
             </thead>
             <tbody>
-              {list.map(tx => (
-                <tr key={tx.id} style={{ background: (tx.productoId === null) ? '#fff0f6' : undefined }}>
+              {list.map((tx, idx) => (
+                <tr key={`${tx.id || 'tx'}_${idx}`} style={{ background: (tx.productoId === null) ? '#fff0f6' : undefined }}>
                   <td>{new Date(tx.fecha || tx.date || '').toLocaleString()}</td>
                   <td>{tx.tipo}</td>
                   <td>

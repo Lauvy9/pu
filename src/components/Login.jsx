@@ -1,54 +1,37 @@
-import { useState, useEffect } from "react";
-import { auth, provider, db } from "../firebase/firebase.js";
-import { signInWithPopup, onAuthStateChanged, signOut } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
+import { useState } from "react";
+import { auth, provider } from "../firebase/firebase.js";
+import { signInWithPopup } from "firebase/auth";
 import logoYbarra from "../assets/logoMIO.png";
 import "./Login.css";
 
 export default function Login({ onLogin }) {
-  const [cargando, setCargando] = useState(true);
+  const [cargando, setCargando] = useState(false);
   const [error, setError] = useState("");
-
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (user) {
-        // Verifica en Firestore si el usuario está autorizado
-        const ref = doc(db, "usuarios-autorizados", user.email);
-        const docSnap = await getDoc(ref);
-        if (docSnap.exists() && docSnap.data().autorizado) {
-          onLogin(user);
-        } else {
-          setError(`Acceso no autorizado: ${user.email}`);
-          await signOut(auth);
-        }
-      }
-      setCargando(false);
-    });
-
-    return () => unsubscribe();
-  }, []);
 
   const handleLogin = async () => {
     setError("");
+    setCargando(true);
+
     try {
       const result = await signInWithPopup(auth, provider);
-      const ref = doc(db, "usuarios-autorizados", result.user.email);
-      const docSnap = await getDoc(ref);
-      if (docSnap.exists() && docSnap.data().autorizado) {
-        onLogin(result.user);
-      } else {
-        setError(`Acceso no autorizado: ${result.user.email}`);
-        await signOut(auth);
-      }
+
+      console.log("LOGIN OK:", result.user);
+
+      // 🔥 SOLO esto
+      onLogin(result.user);
+
     } catch (e) {
-      console.error("Error al iniciar sesión:", e);
-      setError(`Error al iniciar sesión: ${e.message}`);
+      console.error("Error login:", e);
+      setError(e.message);
+    } finally {
       setCargando(false);
     }
   };
 
-  if (cargando) return <p className="login-loading">Cargando...</p>;
 
+
+  if (cargando) return <p className="login-loading">Cargando...</p>;
+  
   return (
     <div className="login-page">
       <div className="login-box">

@@ -7,9 +7,11 @@ import { saveProduct, saveOffer } from '../services/firestoreService'
 
 export default function Inventory() {
   const { products, actions } = useStore()
+  const USE_API = false;
   // helper para persistir ofertas sin bloquear la UI
   async function awaitSaveOffer(o) { try { await saveOffer(o) } catch (e) { console.warn('saveOffer error', e) } }
   async function loadProductsFromAPI() {
+  if (!USE_API) return
   try {
     const res = await fetch("http://localhost:4000/api/products")
     const data = await res.json()
@@ -22,7 +24,7 @@ export default function Inventory() {
   }
 }
 useEffect(() => {
-  if (!products || products.length === 0) {
+  if (USE_API && (!products || products.length === 0)) {
     loadProductsFromAPI()
   }
 }, [])
@@ -53,34 +55,38 @@ async function handleAdd(product) {
     const provisional = actions.addProduct(product)
 
     // Intentar persistir en API en background y reconciliar si retorna datos con id
-    try {
-      const res = await fetch('http://localhost:4000/api/products', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(product)
-      })
-      if (res.ok) {
-        const data = await res.json()
-        // Si el API responde con una representación más completa o id diferente, actualizar
-        if (data && data.id && String(data.id) !== String(provisional.id)) {
-          try { actions.updateProduct(provisional.id, { id: data.id, ...data }) } catch(e) { console.warn('reconcile addProduct id update failed', e) }
-        } else if (data) {
-          try { actions.updateProduct(provisional.id, data) } catch(e) { /* ignore */ }
+    if (USE_API) {
+      try {
+        const res = await fetch('http://localhost:4000/api/products', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(product)
+        })
+        if (res.ok) {
+          const data = await res.json()
+          // Si el API responde con una representación más completa o id diferente, actualizar
+          if (data && data.id && String(data.id) !== String(provisional.id)) {
+            try { actions.updateProduct(provisional.id, { id: data.id, ...data }) } catch(e) { console.warn('reconcile addProduct id update failed', e) }
+          } else if (data) {
+            try { actions.updateProduct(provisional.id, data) } catch(e) { /* ignore */ }
+          }
+          // Intentar guardar en Firestore con la versión final
+          if (import.meta.env.VITE_USE_FIRESTORE === 'true') {
+            try { await saveProduct(data || provisional) } catch (e) { console.warn('saveProduct failed', e) }
+          }
+        } else {
+          console.warn('API add product returned not ok', res.status)
+          // También intentar guardar provisional en Firestore
+          if (import.meta.env.VITE_USE_FIRESTORE === 'true') {
+            try { await saveProduct(provisional) } catch (e) { console.warn('saveProduct failed', e) }
+          }
         }
-        // Intentar guardar en Firestore con la versión final
-        if (import.meta.env.VITE_USE_FIRESTORE === 'true') {
-          try { await saveProduct(data || provisional) } catch (e) { console.warn('saveProduct failed', e) }
-        }
-      } else {
-        console.warn('API add product returned not ok', res.status)
-        // También intentar guardar provisional en Firestore
+      } catch (err) {
+        console.error('Error calling products API (background), product added locally', err)
         if (import.meta.env.VITE_USE_FIRESTORE === 'true') {
           try { await saveProduct(provisional) } catch (e) { console.warn('saveProduct failed', e) }
         }
       }
-    } catch (err) {
-      console.error('Error calling products API (background), product added locally', err)
-      if (import.meta.env.VITE_USE_FIRESTORE === 'true') {
-        try { await saveProduct(provisional) } catch (e) { console.warn('saveProduct failed', e) }
-      }
+    } else {
+      // API disabled: sólo usar el estado local (actions.addProduct ya ejecutado)
     }
   } catch (err) {
     console.error('Error adding product locally', err)

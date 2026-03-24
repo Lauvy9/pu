@@ -32,3 +32,4 @@ build
 
 # Firebase (server)
 server/service-account.json
+.vercel

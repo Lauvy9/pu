@@ -24,24 +24,23 @@ const firebaseConfig = {
 
 // Inicializar Firebase
 const app = initializeApp(firebaseConfig)
-export const analytics = getAnalytics(app)
+
+export const analytics =
+  typeof window !== "undefined" ? getAnalytics(app) : null
+
 export const db = getFirestore(app)
 export const auth = getAuth(app)
 export const provider = new GoogleAuthProvider()
 
-// Enable IndexedDB persistence for offline support (guarded)
-try {
-  enableIndexedDbPersistence(db).then(() => {
-    console.info('🔥 Firestore persistence enabled')
-  }).catch((err) => {
-    if (err.code === 'failed-precondition') {
-      console.warn('Firestore persistence failed: multiple tabs open (failed-precondition)')
-    } else if (err.code === 'unimplemented') {
-      console.warn('Firestore persistence is not available in this browser (unimplemented)')
+// Enable persistence (una sola vez y bien)
+if (typeof window !== "undefined") {
+  enableIndexedDbPersistence(db).catch((err) => {
+    if (err.code === "failed-precondition") {
+      console.warn("⚠️ Varias pestañas abiertas")
+    } else if (err.code === "unimplemented") {
+      console.warn("⚠️ Navegador no soporta persistence")
     } else {
-      console.warn('Failed to enable Firestore persistence', err)
+      console.warn("⚠️ Error:", err)
     }
   })
-} catch (e) {
-  console.warn('Error enabling Firestore persistence', e)
 }
