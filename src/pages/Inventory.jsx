@@ -1,9 +1,11 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useStore } from '../context/StoreContext'
 import ProductForm from '../components/ProductForm'
 import ProductList from '../components/ProductList'
 import { formatARS } from '../utils/formatCurrency'
 import { saveProduct, saveOffer } from '../services/firestoreService'
+import { setDocWithId } from '../firebase/firestoreHelpers'
+import { auth } from '../firebase/firebase'
 
 export default function Inventory() {
   const { products, actions } = useStore()
@@ -45,6 +47,54 @@ useEffect(() => {
     porcentajeGananciaMinorista: 60,
     porcentajeGananciaMayorista: 50
   })
+
+  const lastSavedRef = useRef(null)
+  const [saveStatus, setSaveStatus] = useState(null)
+
+  // Guardado manual: compara estado local con último guardado
+  async function handleSaveChanges() {
+    try {
+      if (import.meta.env.VITE_USE_FIRESTORE !== 'true') {
+        console.warn('Firestore sync not enabled (VITE_USE_FIRESTORE)')
+        return
+      }
+      const user = auth && auth.currentUser ? auth.currentUser : null
+      if (!user) {
+        alert('Debes iniciar sesión para guardar en Firestore')
+        return
+      }
+
+      const payload = JSON.stringify(products || [])
+      if (lastSavedRef.current === payload) {
+        console.log('No hay cambios en productos — no se guarda')
+        setSaveStatus('no-changes')
+        setTimeout(() => setSaveStatus(null), 1200)
+        return
+      }
+
+      setSaveStatus('saving')
+      // Guardar cada producto usando setDocWithId — IDs deben existir
+      for (const p of Array.isArray(products) ? products : []) {
+        try {
+          if (!p || (typeof p.id === 'undefined' || p.id === null)) {
+            console.warn('Producto sin id, se omite:', p)
+            continue
+          }
+          await setDocWithId('productos', String(p.id), p)
+        } catch (e) {
+          console.error('Error guardando producto', p && p.id, e)
+        }
+      }
+
+      lastSavedRef.current = payload
+      setSaveStatus('saved')
+      console.log('Guardado exitoso de productos en Firestore')
+      setTimeout(() => setSaveStatus(null), 1500)
+    } catch (e) {
+      console.error('handleSaveChanges fallo', e)
+      setSaveStatus('error')
+    }
+  }
 
   // -------------------------
 // AGREGAR PRODUCTO (UI)
@@ -278,13 +328,17 @@ const productosMuebleria = productosFiltrados.filter(
     <div className="grid">
 
       <div>
-        <div style={{ marginBottom: 8 }}>
+        <div style={{ marginBottom: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
           <input
             className="input"
             placeholder="Buscar productos"
             value={query}
             onChange={e => setQuery(e.target.value)}
           />
+          <button className="btn" onClick={handleSaveChanges}>Guardar cambios</button>
+          {saveStatus === 'saving' && <span style={{ marginLeft: 8 }}>Guardando...</span>}
+          {saveStatus === 'saved' && <span style={{ marginLeft: 8, color: 'green' }}>Guardado</span>}
+          {saveStatus === 'no-changes' && <span style={{ marginLeft: 8 }}>Sin cambios</span>}
         </div>
         <ProductForm onAdd={handleAdd} />
       </div>
